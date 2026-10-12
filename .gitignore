@@ -1,0 +1,5 @@
+demo.mp4
+*.webm
+__pycache__/
+node_modules/
+.DS_Store

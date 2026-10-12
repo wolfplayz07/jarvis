@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>Jarvis</title>
+  <meta name="description" content="Clap twice and your phone greets you, Jarvis style.">
+  <meta name="theme-color" content="#04080f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Jarvis">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="icons/favicon-32.png">
+  <link rel="stylesheet" href="styles.css?v=1">
+</head>
+<body>
+  <div class="scan" aria-hidden="true"></div>
+  <main id="app">
+    <header class="top">
+      <div class="brand">J.A.R.V.I.S.</div>
+      <div id="status" class="status" role="status">Offline-ready · tap Start</div>
+    </header>
+
+    <section id="startView" class="start-view">
+      <button id="startBtn" class="start-btn" type="button" aria-label="Start listening">
+        <span class="reactor small" aria-hidden="true"><i></i><i></i><i></i><b></b></span>
+        <span class="start-label">START</span>
+      </button>
+      <p class="hint">Tap Start, allow the microphone, then clap twice.</p>
+    </section>
+
+    <section id="listenView" class="panel" hidden>
+      <div class="row between">
+        <h2>Listening for a double clap</h2>
+        <button id="stopBtn" class="ghost small-btn" type="button">Stop</button>
+      </div>
+      <canvas id="meter" class="meter" width="600" height="90" aria-label="Microphone level meter"></canvas>
+      <div class="legend"><span><i class="sw lvl"></i>level</span><span><i class="sw thr"></i>clap threshold</span><span id="clapCount">claps: 0</span></div>
+      <label class="field">Sensitivity <output id="sensOut">50</output>
+        <input id="sens" type="range" min="0" max="100" value="50">
+      </label>
+      <div class="row">
+        <button id="testClapBtn" class="ghost" type="button">Play greeting now</button>
+      </div>
+    </section>
+
+    <section id="launchView" class="panel">
+      <h2>Quick launch</h2>
+      <p class="note">iOS opens apps only on a tap, so each one is a single tap.</p>
+      <div id="launchers" class="launchers"></div>
+      <a id="shortcutBtn" class="launch shortcut" href="shortcuts://run-shortcut?name=Jarvis"><span id="shortcutNameLbl">⚡ Run iOS Shortcut “Jarvis”</span></a>
+    </section>
+
+    <details class="panel" id="settingsPanel">
+      <summary>Voice &amp; greeting</summary>
+      <label class="field">Greeting template
+        <input id="greetTpl" type="text" autocomplete="off">
+        <small>{greeting} becomes Good morning / Good afternoon / Good evening.</small>
+      </label>
+      <label class="field">Voice
+        <select id="voiceSel"></select>
+      </label>
+      <label class="field">Rate <output id="rateOut">1.0</output>
+        <input id="rate" type="range" min="0.5" max="1.5" step="0.05" value="0.95">
+      </label>
+      <label class="field">Pitch <output id="pitchOut">1.0</output>
+        <input id="pitch" type="range" min="0.5" max="1.5" step="0.05" value="0.9">
+      </label>
+      <div class="row"><button id="testVoiceBtn" type="button">Test voice</button></div>
+    </details>
+
+    <details class="panel" id="wakePanel">
+      <summary>“Hey Jarvis” voice wake</summary>
+      <label class="toggle"><input id="wakeToggle" type="checkbox"> Listen for “Hey Jarvis”</label>
+      <p id="wakeNote" class="note"></p>
+    </details>
+
+    <details class="panel" id="editPanel">
+      <summary>Edit launch buttons</summary>
+      <div id="editList" class="edit-list"></div>
+      <div class="row">
+        <button id="addLauncher" type="button">+ Add app</button>
+        <button id="resetLaunchers" class="ghost" type="button">Reset defaults</button>
+      </div>
+      <p class="note">Common links: spotify://, youtube://, googlechrome://, music://, mailto:, tel:, https://…</p>
+    </details>
+
+    <details class="panel" id="shortcutPanel">
+      <summary>iOS Shortcut help</summary>
+      <label class="field">Shortcut name
+        <input id="shortcutName" type="text" autocomplete="off">
+      </label>
+      <ol class="steps">
+        <li>Open the free <b>Shortcuts</b> app (it comes with iOS).</li>
+        <li>Tap <b>+</b> to make a new shortcut and name it <b id="helpName">Jarvis</b>.</li>
+        <li>Tap <b>Add Action</b>, search <b>Open App</b>, pick an app (for example Spotify).</li>
+        <li>Add more <b>Open App</b> actions for each app you want. Shortcuts runs them in order; the last one stays on screen.</li>
+        <li>Optional: add <b>Speak Text</b> first with “Welcome home, sir.”</li>
+        <li>Tap <b>Done</b>. Back here, tap <b>Run iOS Shortcut</b>. The first time, iOS asks to allow it.</li>
+      </ol>
+    </details>
+
+    <footer class="foot">Free · offline · no tracking · nothing leaves your phone</footer>
+  </main>
+
+  <div id="hud" class="hud" hidden aria-live="assertive">
+    <div class="hud-bg" aria-hidden="true"></div>
+    <svg class="hud-rings" viewBox="0 0 300 300" aria-hidden="true">
+      <circle class="r r1" cx="150" cy="150" r="140"/>
+      <circle class="r r2" cx="150" cy="150" r="118"/>
+      <circle class="r r3" cx="150" cy="150" r="96"/>
+      <circle class="r r4" cx="150" cy="150" r="70"/>
+      <polygon class="tri" points="150,95 197.6,177.5 102.4,177.5"/>
+      <circle class="core" cx="150" cy="150" r="30"/>
+    </svg>
+    <div class="hud-text">
+      <div class="hud-tag">SYSTEMS ONLINE</div>
+      <div id="greetText" class="greet"></div>
+      <div id="hudClock" class="hud-clock"></div>
+    </div>
+    <div id="hudLaunchers" class="launchers hud-launch"></div>
+    <button id="hudClose" class="ghost" type="button">Dismiss</button>
+  </div>
+
+  <script src="clap.js?v=1"></script>
+  <script src="app.js?v=1"></script>
+</body>
+</html>
