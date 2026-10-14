@@ -13,7 +13,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/favicon-32.png">
-  <link rel="stylesheet" href="styles.css?v=1">
+  <link rel="stylesheet" href="styles.css?v=2">
 </head>
 <body>
   <div class="scan" aria-hidden="true"></div>
@@ -28,14 +28,16 @@
         <span class="reactor small" aria-hidden="true"><i></i><i></i><i></i><b></b></span>
         <span class="start-label">START</span>
       </button>
-      <p class="hint">Tap Start, allow the microphone, then clap twice.</p>
+      <p class="hint">Tap Start, allow the microphone, then say “Jarvis” or clap twice.</p>
     </section>
 
     <section id="listenView" class="panel" hidden>
       <div class="row between">
-        <h2>Listening for a double clap</h2>
+        <h2>Listening</h2>
         <button id="stopBtn" class="ghost small-btn" type="button">Stop</button>
       </div>
+      <p id="wakeStatus" class="wake-status" role="status"></p>
+      <p id="wakeHeard" class="wake-heard" aria-live="off"></p>
       <canvas id="meter" class="meter" width="600" height="90" aria-label="Microphone level meter"></canvas>
       <div class="legend"><span><i class="sw lvl"></i>level</span><span><i class="sw thr"></i>clap threshold</span><span id="clapCount">claps: 0</span></div>
       <label class="field">Sensitivity <output id="sensOut">50</output>
@@ -72,9 +74,16 @@
     </details>
 
     <details class="panel" id="wakePanel">
-      <summary>“Hey Jarvis” voice wake</summary>
-      <label class="toggle"><input id="wakeToggle" type="checkbox"> Listen for “Hey Jarvis”</label>
+      <summary>“Jarvis” voice wake</summary>
+      <label class="toggle"><input id="wakeToggle" type="checkbox" checked> Wake when I say “Jarvis” or “Hey Jarvis”</label>
       <p id="wakeNote" class="note"></p>
+      <ul class="steps">
+        <li>Jarvis only listens while this app is open on screen. iPhone web apps can’t listen in the background or with the screen locked.</li>
+        <li>The first time, iOS may ask for <b>Speech Recognition</b> permission as well as the microphone. Allow both.</li>
+        <li>Apple’s speech recognition in web apps is limited and can stop or miss words. Jarvis restarts it automatically. If voice wake doesn’t work from the Home Screen icon, try opening the link straight in Safari instead.</li>
+        <li>If voice wake and clap detection fight over the mic on your phone, voice wake takes priority. Clapping is the backup that always works when voice isn’t available.</li>
+        <li>Jarvis stops listening while it talks so it doesn’t hear itself.</li>
+      </ul>
     </details>
 
     <details class="panel" id="editPanel">
@@ -124,7 +133,8 @@
     <button id="hudClose" class="ghost" type="button">Dismiss</button>
   </div>
 
-  <script src="clap.js?v=1"></script>
-  <script src="app.js?v=1"></script>
+  <script src="clap.js?v=2"></script>
+  <script src="wake.js?v=2"></script>
+  <script src="app.js?v=2"></script>
 </body>
 </html>

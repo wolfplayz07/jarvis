@@ -99,3 +99,6 @@ output { float: right; color: var(--cyan); }
 .hud-launch.show { opacity: 1; }
 #hudClose { position: relative; margin-top: 6px; }
 @media (prefers-reduced-motion: reduce) { * { animation-duration: 0s !important; } }
+
+.wake-status{margin:.2rem 0;color:#2fe0ff;font-weight:600}
+.wake-heard{margin:0 0 .4rem;min-height:1.2em;opacity:.45;font-style:italic;font-size:.9rem}

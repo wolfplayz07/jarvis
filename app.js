@@ -4,6 +4,7 @@
   var $ = function (id) { return document.getElementById(id); };
   var TEST = /[?&]test=1\b/.test(location.search);
   var STORE = 'jarvis.settings.v1';
+  var WAKE_DEFAULT_KEY = 'jarvis.wakeDefault.v2';
 
   var DEFAULT_LAUNCHERS = [
     { name: 'Spotify', url: 'spotify://' },
@@ -18,7 +19,7 @@
     rate: 0.95,
     pitch: 0.9,
     shortcutName: 'Jarvis',
-    wake: false,
+    wake: true,
     launchers: DEFAULT_LAUNCHERS
   };
 
@@ -32,6 +33,7 @@
     return out;
   }
   var settings = load();
+  try { if (!localStorage.getItem(WAKE_DEFAULT_KEY)) { settings.wake = true; localStorage.setItem(WAKE_DEFAULT_KEY, '1'); } } catch (e) { /* ignore */ }
   function save() { try { localStorage.setItem(STORE, JSON.stringify(settings)); } catch (e) { /* private mode */ } }
 
   function setStatus(t) { $('status').textContent = t; }
@@ -98,6 +100,10 @@
       if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = 'en-GB'; }
       u.rate = Number(settings.rate) || 1;
       u.pitch = Number(settings.pitch) || 1;
+      pauseWake('speaking');
+      var done = function () { setTimeout(function () { resumeWake('speaking'); }, 500); };
+      u.onend = done; u.onerror = done;
+      setTimeout(function () { resumeWake('speaking'); }, 15000); // safety if onend never fires
       ss.speak(u);
       return true;
     } catch (e) { return false; }
@@ -205,8 +211,8 @@
         audio.timer = setInterval(tick, 12);
         audio.raf = requestAnimationFrame(draw);
         $('startView').hidden = true; $('listenView').hidden = false;
-        setStatus('Listening · clap twice');
-        if (settings.wake) startWake();
+        setStatus('Listening · clap twice or say “Jarvis”');
+        if (settings.wake) startWake(); else stopWake();
       });
     }).catch(function (err) {
       try { ctx.close(); } catch (e) { /* ignore */ }
@@ -254,39 +260,60 @@
     audio.raf = requestAnimationFrame(draw);
   }
 
-  // ---------- "Hey Jarvis" ----------
+  // ---------- "Jarvis" / "Hey Jarvis" voice wake ----------
   var Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
-  var rec = null, wakeWanted = false, lastWake = 0;
-  function startWake() {
-    if (!Rec) return;
-    wakeWanted = true;
-    if (rec) return;
+  var rec = null, wakeWanted = false, wakeFatal = false, restartTry = 0, restartTimer = null;
+  var pauses = {};
+  var wakeDebounce = JarvisWake.createDebouncer(3000);
+  function wakeMsg(t) { var n = $('wakeNote'); if (n) n.textContent = t; var w = $('wakeStatus'); if (w) w.textContent = t; }
+  function heard(t) { var h = $('wakeHeard'); if (h) h.textContent = t ? '“' + t + '”' : ''; }
+  function paused() { for (var k in pauses) if (pauses[k]) return true; return false; }
+  function scheduleRestart() {
+    clearTimeout(restartTimer);
+    if (!wakeWanted || wakeFatal || paused() || !audio) return;
+    var d = JarvisWake.backoff(restartTry++);
+    restartTimer = setTimeout(startRec, d);
+  }
+  function startRec() {
+    if (!Rec || rec || !wakeWanted || wakeFatal || paused()) return;
     try {
-      rec = new Rec();
-      rec.continuous = true; rec.interimResults = true; rec.lang = 'en-GB';
-      rec.onresult = function (e) {
+      var r = new Rec();
+      r.continuous = true; r.interimResults = true;
+      r.lang = (navigator.language && /^en/i.test(navigator.language)) ? navigator.language : 'en-US';
+      r.onstart = function () { wakeMsg('Listening for “Jarvis”… (clapping works too)'); };
+      r.onresult = function (e) {
+        restartTry = 0;
         for (var i = e.resultIndex; i < e.results.length; i++) {
-          var t = (e.results[i][0] && e.results[i][0].transcript || '').toLowerCase();
-          if (/\b(hey|hi|ok|okay)?\s*jarvis\b/.test(t) && Date.now() - lastWake > 4000) {
-            lastWake = Date.now(); trigger('hey jarvis');
-          }
+          var t = (e.results[i][0] && e.results[i][0].transcript) || '';
+          heard(t);
+          if (JarvisWake.matchWake(t) && wakeDebounce.fire(Date.now())) trigger('voice: ' + t.trim());
         }
       };
-      rec.onerror = function (e) {
-        if (e && (e.error === 'not-allowed' || e.error === 'service-not-allowed')) {
-          wakeWanted = false; $('wakeToggle').checked = false; settings.wake = false; save();
-          $('wakeNote').textContent = 'Speech recognition was not allowed, so clap only.';
+      r.onerror = function (e) {
+        var err = e && e.error;
+        if (JarvisWake.isFatalError(err)) {
+          wakeFatal = true;
+          wakeMsg('Speech recognition not allowed (' + err + '). Allow Speech Recognition in Settings › Privacy & Security, then tap Stop and Start. Clapping still works.');
         }
       };
-      rec.onend = function () { rec = null; if (wakeWanted && audio) setTimeout(startWake, 400); };
-      rec.start();
-      $('wakeNote').textContent = 'Listening for “Hey Jarvis”. Clapping still works.';
+      r.onend = function () { if (rec === r) rec = null; scheduleRestart(); };
+      rec = r;
+      r.start();
     } catch (e) {
       rec = null;
-      $('wakeNote').textContent = 'Voice wake could not start here, so clap only.';
+      wakeMsg('Voice wake could not start here, so clap twice instead.');
+      scheduleRestart();
     }
   }
-  function stopWake() { wakeWanted = false; if (rec) { try { rec.stop(); } catch (e) { /* ignore */ } rec = null; } }
+  function startWake() {
+    if (!Rec) { wakeMsg('Voice wake not supported here, clap twice instead.'); return; }
+    wakeWanted = true; wakeFatal = false; restartTry = 0;
+    startRec();
+  }
+  function stopRec() { var r = rec; rec = null; clearTimeout(restartTimer); if (r) { try { r.abort ? r.abort() : r.stop(); } catch (e) { /* ignore */ } } }
+  function stopWake() { wakeWanted = false; stopRec(); heard(''); wakeMsg(Rec ? 'Voice wake off. Clap twice to wake Jarvis.' : 'Voice wake not supported here, clap twice instead.'); }
+  function pauseWake(why) { pauses[why] = true; if (rec) stopRec(); }
+  function resumeWake(why) { if (!pauses[why]) return; pauses[why] = false; restartTry = 0; if (wakeWanted && !paused()) { clearTimeout(restartTimer); restartTimer = setTimeout(startRec, 150); } }
 
   // ---------- wire up ----------
   function bind() {
@@ -320,13 +347,13 @@
     var wt = $('wakeToggle');
     if (!Rec) {
       wt.disabled = true; wt.checked = false;
-      $('wakeNote').textContent = 'This browser has no speech recognition, so Jarvis listens for claps only.';
+      wakeMsg('Voice wake not supported here, clap twice instead.');
     } else {
       wt.checked = !!settings.wake;
-      $('wakeNote').textContent = 'Uses Safari’s built-in speech recognition (support varies; it may stop after a while). Clapping always works.';
+      wakeMsg(settings.wake ? 'Tap Start, then say “Jarvis” or “Hey Jarvis”.' : 'Voice wake off. Clap twice to wake Jarvis.');
       wt.addEventListener('change', function () {
         settings.wake = wt.checked; save();
-        if (wt.checked) { if (audio) startWake(); else $('wakeNote').textContent = 'Tap Start to begin listening.'; }
+        if (wt.checked) { if (audio) startWake(); else wakeMsg('Tap Start to begin listening.'); }
         else stopWake();
       });
     }
@@ -339,8 +366,8 @@
     } else refreshVoices();
 
     document.addEventListener('visibilitychange', function () {
-      if (document.hidden) { if (audio) setStatus('Paused while in the background'); }
-      else if (audio) { audio.ctx.resume().catch(function () {}); setStatus('Listening · clap twice'); }
+      if (document.hidden) { pauseWake('hidden'); if (audio) setStatus('Paused while in the background'); }
+      else { if (audio) { audio.ctx.resume().catch(function () {}); setStatus('Listening · clap twice or say “Jarvis”'); } resumeWake('hidden'); }
     });
 
     renderShortcut();

@@ -46,6 +46,40 @@ try:
         results['claps_counted'] = page.inner_text('#clapCount')
         page.wait_for_selector('#hudLaunchers.show', timeout=5000)
         results['hud_launchers'] = page.eval_on_selector_all('#hudLaunchers a', 'els => els.map(e => e.textContent + " -> " + e.getAttribute("href"))')
+        # Phase 2: stubbed speech recognition that hears "hey jarvis".
+        ctx2 = browser.new_context(viewport={'width': 390, 'height': 844}, permissions=['microphone'])
+        ctx2.add_init_script('''
+          (function(){
+            function FakeRec(){ this.continuous=false; this.interimResults=false; this.lang=''; window.__fakeRecs=(window.__fakeRecs||0)+1; }
+            FakeRec.prototype.start=function(){ var self=this; window.__fakeRec=self;
+              setTimeout(function(){ self.onstart&&self.onstart(); }, 50);
+              setTimeout(function(){ var alt={transcript:'hey jarvis', confidence:0.9}; var res=[alt]; res.isFinal=false;
+                self.onresult&&self.onresult({resultIndex:0, results:[res]}); }, 400); };
+            FakeRec.prototype.stop=function(){ var s=this; setTimeout(function(){ s.onend&&s.onend(); },10); };
+            FakeRec.prototype.abort=FakeRec.prototype.stop;
+            window.SpeechRecognition = undefined; window.webkitSpeechRecognition = FakeRec;
+          })();''')
+        page2 = ctx2.new_page()
+        page2.on('console', lambda m: errors.append('console2: ' + m.text) if m.type == 'error' else None)
+        page2.on('pageerror', lambda e: errors.append('pageerror2: ' + str(e)))
+        page2.goto(f'http://127.0.0.1:{PORT}/', wait_until='load')
+        page2.evaluate("localStorage.clear()")
+        page2.reload(wait_until='load')
+        results['wake_toggle_default'] = page2.is_checked('#wakeToggle')
+        page2.click('#startBtn')
+        page2.wait_for_function("window.jarvisLastTrigger && window.jarvisLastTrigger.source.indexOf('voice') === 0", timeout=8000)
+        results['wake_trigger'] = page2.evaluate('window.jarvisLastTrigger.source')
+        results['wake_greeting'] = page2.inner_text('#greetText')
+        page2.wait_for_selector('#hudLaunchers.show', timeout=5000)
+        results['wake_buttons'] = page2.eval_on_selector_all('#hudLaunchers a', 'els => els.length')
+        results['wake_heard'] = page2.inner_text('#wakeHeard')
+        # no-support fallback
+        ctx3 = browser.new_context()
+        ctx3.add_init_script('window.SpeechRecognition = undefined; window.webkitSpeechRecognition = undefined;')
+        page3 = ctx3.new_page()
+        page3.on('pageerror', lambda e: errors.append('pageerror3: ' + str(e)))
+        page3.goto(f'http://127.0.0.1:{PORT}/', wait_until='load')
+        results['unsupported_note'] = page3.text_content('#wakeNote')
         results['console_errors'] = errors
         browser.close()
 finally:
@@ -54,6 +88,9 @@ finally:
 print(json.dumps(results, indent=2))
 ok = (results.get('service_worker_active') and results.get('manifest_name') == 'Jarvis'
       and results.get('trigger') == 'double clap' and 'Welcome home' in results.get('greeting', '')
+      and results.get('wake_toggle_default') and str(results.get('wake_trigger','')).startswith('voice')
+      and 'Welcome home' in results.get('wake_greeting', '') and results.get('wake_buttons', 0) > 0
+      and 'not supported' in results.get('unsupported_note', '')
       and not results.get('console_errors'))
 print('BROWSER CHECK:', 'PASS' if ok else 'FAIL')
 sys.exit(0 if ok else 1)

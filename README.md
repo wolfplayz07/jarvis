@@ -56,3 +56,6 @@ double clap used to drive the real microphone path in headless Chromium.
 
 Inspired by the idea of clap-to-start "Jarvis" desktop scripts, such as
 https://github.com/hectorg2211/jarvis. No code was copied; this app was written from scratch for the phone.
+
+## Voice wake ("Jarvis" / "Hey Jarvis")
+On by default after Start (toggle in the "Jarvis" voice wake panel). Uses Safari's built-in speech recognition (`webkitSpeechRecognition`, continuous + interim results), matched by `wake.js` (`matchWake`), with a 3 s debounce. It auto-restarts with backoff on `end`/`no-speech`/`aborted`/`network`, stops on `not-allowed`/`service-not-allowed`, pauses while Jarvis is speaking and while the app is hidden. Only works while the app is open on screen. If the phone won't run voice wake and clap detection together, voice wake takes priority and clapping stays the fallback whenever speech recognition is unavailable.
