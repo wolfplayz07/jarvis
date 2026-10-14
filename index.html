@@ -13,7 +13,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/favicon-32.png">
-  <link rel="stylesheet" href="styles.css?v=2">
+  <link rel="stylesheet" href="styles.css?v=3">
 </head>
 <body>
   <div class="scan" aria-hidden="true"></div>
@@ -73,6 +73,18 @@
       <div class="row"><button id="testVoiceBtn" type="button">Test voice</button></div>
     </details>
 
+    <details class="panel" id="brainPanel">
+      <summary>Jarvis’s brain is Nova</summary>
+      <ul class="steps">
+        <li>Say “Hey Jarvis” and your question in one go (“Hey Jarvis, what is 25% of 200?”), or say “Jarvis”, wait for the greeting, then ask. For about 8 seconds after he answers you can ask again without saying “Jarvis”.</li>
+        <li>Jarvis has no knowledge of his own. Every question goes to Nova, so he only knows what Nova knows (math, word problems, its lessons) and what you teach it. When Nova doesn’t know, he says “I do not know” honestly instead of guessing.</li>
+        <li><b>Teach by voice:</b> when he says he doesn’t know, or asks “what do you mean by it?” or “yes or no?”, just say the answer within about 15 seconds, no “Jarvis” needed. He’ll reply “got it. next time I’ll say …”. Say “skip” or “never mind” to cancel.</li>
+        <li>Nova’s commands work by voice too: “when I say hello say welcome back”, “lock photo as a picture”, “what do you remember”, “start learning”, “stop learning”.</li>
+        <li>“Open Spotify / YouTube / Chrome” lights up that button. iPhone needs your tap to open it.</li>
+        <li><b>Memory on iPhone:</b> in Safari, Jarvis and Nova share one memory, so things taught in one are known in the other. Each Home Screen app gets its own separate storage, so the Jarvis icon and the Nova icon won’t share what you teach. Both still start with the same Nova brain. Jarvis needs the internet the first time to load Nova.</li>
+      </ul>
+    </details>
+
     <details class="panel" id="wakePanel">
       <summary>“Jarvis” voice wake</summary>
       <label class="toggle"><input id="wakeToggle" type="checkbox" checked> Wake when I say “Jarvis” or “Hey Jarvis”</label>
@@ -129,12 +141,16 @@
       <div id="greetText" class="greet"></div>
       <div id="hudClock" class="hud-clock"></div>
     </div>
+    <div id="chat" class="chat" aria-live="polite"></div>
+    <p id="chatHint" class="chat-hint">Say “Jarvis” to talk</p>
     <div id="hudLaunchers" class="launchers hud-launch"></div>
     <button id="hudClose" class="ghost" type="button">Dismiss</button>
   </div>
 
-  <script src="clap.js?v=2"></script>
-  <script src="wake.js?v=2"></script>
-  <script src="app.js?v=2"></script>
+  <script src="clap.js?v=3"></script>
+  <script src="wake.js?v=3"></script>
+  <script src="brain.js?v=3"></script>
+  <script src="nova-bridge.js?v=3"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>

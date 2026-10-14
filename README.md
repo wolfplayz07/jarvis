@@ -59,3 +59,9 @@ https://github.com/hectorg2211/jarvis. No code was copied; this app was written 
 
 ## Voice wake ("Jarvis" / "Hey Jarvis")
 On by default after Start (toggle in the "Jarvis" voice wake panel). Uses Safari's built-in speech recognition (`webkitSpeechRecognition`, continuous + interim results), matched by `wake.js` (`matchWake`), with a 3 s debounce. It auto-restarts with backoff on `end`/`no-speech`/`aborted`/`network`, stops on `not-allowed`/`service-not-allowed`, pauses while Jarvis is speaking and while the app is hidden. Only works while the app is open on screen. If the phone won't run voice wake and clap detection together, voice wake takes priority and clapping stays the fallback whenever speech recognition is unavailable.
+
+## Brain: Nova (v3)
+After "Jarvis" / "Hey Jarvis" (or a double clap), what you say next goes to Nova (`/Nova-AI/` on the same site),
+loaded in a hidden frame and run through Nova's own reply path. Jarvis speaks Nova's answer and adds no knowledge of
+its own. When Nova says "i do not know", the next line (within ~15 s) teaches it; "skip" or "never mind" cancels.
+In Safari, Jarvis and Nova share memory; separate Home Screen apps on iPhone each get their own storage.

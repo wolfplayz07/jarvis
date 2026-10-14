@@ -90,7 +90,7 @@
     });
     sel.value = settings.voiceURI || '';
   }
-  function speak(text) {
+  function speak(text, onDone) {
     if (!hasTTS()) return false;
     try {
       var ss = window.speechSynthesis;
@@ -101,12 +101,14 @@
       u.rate = Number(settings.rate) || 1;
       u.pitch = Number(settings.pitch) || 1;
       pauseWake('speaking');
-      var done = function () { setTimeout(function () { resumeWake('speaking'); }, 500); };
+      var fired = false;
+      var done = function () { if (fired) return; fired = true; if (onDone) { try { onDone(); } catch (e) { /* ignore */ } } setTimeout(function () { resumeWake('speaking'); }, 500); };
       u.onend = done; u.onerror = done;
-      setTimeout(function () { resumeWake('speaking'); }, 15000); // safety if onend never fires
+      setTimeout(done, Math.min(30000, 4000 + String(text).length * 90)); // safety if onend never fires
       ss.speak(u);
+      window.jarvisLastSpoken = text;
       return true;
-    } catch (e) { return false; }
+    } catch (e) { if (onDone) onDone(); return false; }
   }
   function unlockSpeech() {
     // iOS only lets speech start after a tap; a silent utterance inside the tap unlocks it.
@@ -171,13 +173,84 @@
     var hl = $('hudLaunchers'); hl.classList.remove('show');
     clearTimeout(hudTimer);
     hudTimer = setTimeout(function () { hl.classList.add('show'); }, 1400);
-    speak(text);
+    speak(text, function () { session.afterGreet(Date.now()); listenHint(); });
     if (navigator.vibrate) { try { navigator.vibrate([40, 60, 40]); } catch (e) { /* ignore */ } }
     setStatus('Greeting (' + source + ') · ' + new Date().toLocaleTimeString());
     document.dispatchEvent(new CustomEvent('jarvis:trigger', { detail: { source: source, text: text } }));
     window.jarvisLastTrigger = { source: source, text: text, at: Date.now() };
   }
-  function closeHud() { $('hud').hidden = true; }
+  function closeHud() { $('hud').hidden = true; session.close(); listenHint(); }
+
+  // ---------- Nova brain (talk) ----------
+  var session = JarvisBrain.createSession();
+  function showHud() {
+    var hud = $('hud');
+    if (hud.hidden) { hud.hidden = false; hud.style.animation = 'none'; void hud.offsetWidth; hud.style.animation = ''; }
+    $('hudClock').textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    $('hudLaunchers').classList.add('show');
+  }
+  function bubble(who, text) {
+    var box = $('chat'); if (!box) return;
+    var d = document.createElement('div');
+    d.className = 'bubble ' + (who === 'you' ? 'you' : 'jarvis');
+    var b = document.createElement('b'); b.textContent = who === 'you' ? 'You' : 'Jarvis';
+    var sp = document.createElement('span'); sp.textContent = text;
+    d.appendChild(b); d.appendChild(sp); box.appendChild(d);
+    while (box.children.length > 12) box.removeChild(box.firstChild);
+    box.scrollTop = box.scrollHeight;
+  }
+  function listenHint() {
+    var m = session.mode(Date.now()), el = $('chatHint'); if (!el) return;
+    el.textContent = m === 'teach' ? 'Teach me: just say the answer (or “skip”)…'
+      : m ? 'Listening… no need to say “Jarvis”' : 'Say “Jarvis” to talk';
+  }
+  function launchByVoice(target) {
+    var links = $('hudLaunchers').querySelectorAll('a.launch');
+    for (var i = 0; i < links.length; i++) {
+      var n = links[i].textContent.toLowerCase();
+      if (n.indexOf(target) !== -1 || target.indexOf(n) !== -1) {
+        links[i].classList.add('pulse');
+        (function (a) { setTimeout(function () { a.classList.remove('pulse'); }, 6000); })(links[i]);
+        return links[i].textContent;
+      }
+    }
+    return null;
+  }
+  var asking = false;
+  function ask(text, via) {
+    showHud();
+    $('greetText').textContent = '';
+    bubble('you', text);
+    var target = via !== 'teach' ? JarvisBrain.launchTarget(text) : null;
+    var appName = target ? launchByVoice(target) : null;
+    if (appName) return say('Tap to open ' + appName + ', sir.', true);
+    asking = true;
+    setStatus('Asking Nova…');
+    NovaBridge.ask(text).then(function (answer) {
+      asking = false;
+      answer = answer || 'i do not know.';
+      say(answer, false);
+    }).catch(function () {
+      asking = false;
+      say('My brain, Nova, did not load. Check the connection and try again.', true);
+    });
+  }
+  function say(answer, skipTeach) {
+    bubble('jarvis', answer);
+    window.jarvisLastAnswer = answer; window.jarvisAnswerCount = (window.jarvisAnswerCount || 0) + 1;
+    document.dispatchEvent(new CustomEvent('jarvis:answer', { detail: { text: answer } }));
+    var after = function () { if (skipTeach) session.afterAnswer('', Date.now()); else session.afterAnswer(answer, Date.now()); listenHint(); };
+    setStatus('Jarvis answered · ' + new Date().toLocaleTimeString());
+    if (!speak(JarvisBrain.speakable(answer), after)) after();
+  }
+  function heardLine(text, source) {
+    if (asking) return;
+    var r = session.handle(text, Date.now());
+    if (!r) return;
+    if (r.type === 'greet') { if (wakeDebounce.fire(Date.now())) trigger(source || ('voice: ' + String(text).trim())); return; }
+    wakeDebounce.fire(Date.now());
+    ask(r.text, r.via);
+  }
 
   // ---------- microphone + clap ----------
   var audio = null; // {ctx, stream, analyser, buf, timer, raf}
@@ -213,6 +286,7 @@
         $('startView').hidden = true; $('listenView').hidden = false;
         setStatus('Listening · clap twice or say “Jarvis”');
         if (settings.wake) startWake(); else stopWake();
+        NovaBridge.load().then(function () { window.jarvisNovaReady = true; }).catch(function () { window.jarvisNovaReady = false; });
       });
     }).catch(function (err) {
       try { ctx.close(); } catch (e) { /* ignore */ }
@@ -274,6 +348,15 @@
     var d = JarvisWake.backoff(restartTry++);
     restartTimer = setTimeout(startRec, d);
   }
+  var pendingLine = null, finalTimer = null, doneIndex = 0;
+  function finalize() {
+    clearTimeout(finalTimer);
+    var p = pendingLine; pendingLine = null;
+    if (!p) return;
+    doneIndex = p.index + 1;
+    heardLine(p.text);
+  }
+  function showHudPending() { var g = $('greetText'); showHud(); if (g && !g.textContent) g.textContent = '…'; }
   function startRec() {
     if (!Rec || rec || !wakeWanted || wakeFatal || paused()) return;
     try {
@@ -284,9 +367,13 @@
       r.onresult = function (e) {
         restartTry = 0;
         for (var i = e.resultIndex; i < e.results.length; i++) {
+          if (i < doneIndex) continue;
           var t = (e.results[i][0] && e.results[i][0].transcript) || '';
           heard(t);
-          if (JarvisWake.matchWake(t) && wakeDebounce.fire(Date.now())) trigger('voice: ' + t.trim());
+          if (JarvisWake.matchWake(t) && !session.mode(Date.now())) showHudPending();
+          pendingLine = { text: t, index: i };
+          clearTimeout(finalTimer);
+          if (e.results[i].isFinal) finalize(); else finalTimer = setTimeout(finalize, 1200);
         }
       };
       r.onerror = function (e) {
@@ -296,8 +383,8 @@
           wakeMsg('Speech recognition not allowed (' + err + '). Allow Speech Recognition in Settings › Privacy & Security, then tap Stop and Start. Clapping still works.');
         }
       };
-      r.onend = function () { if (rec === r) rec = null; scheduleRestart(); };
-      rec = r;
+      r.onend = function () { if (rec === r) { rec = null; finalize(); doneIndex = 0; } scheduleRestart(); };
+      rec = r; doneIndex = 0; pendingLine = null;
       r.start();
     } catch (e) {
       rec = null;
@@ -310,7 +397,7 @@
     wakeWanted = true; wakeFatal = false; restartTry = 0;
     startRec();
   }
-  function stopRec() { var r = rec; rec = null; clearTimeout(restartTimer); if (r) { try { r.abort ? r.abort() : r.stop(); } catch (e) { /* ignore */ } } }
+  function stopRec() { var r = rec; rec = null; clearTimeout(finalTimer); pendingLine = null; clearTimeout(restartTimer); if (r) { try { r.abort ? r.abort() : r.stop(); } catch (e) { /* ignore */ } } }
   function stopWake() { wakeWanted = false; stopRec(); heard(''); wakeMsg(Rec ? 'Voice wake off. Clap twice to wake Jarvis.' : 'Voice wake not supported here, clap twice instead.'); }
   function pauseWake(why) { pauses[why] = true; if (rec) stopRec(); }
   function resumeWake(why) { if (!pauses[why]) return; pauses[why] = false; restartTry = 0; if (wakeWanted && !paused()) { clearTimeout(restartTimer); restartTimer = setTimeout(startRec, 150); } }
@@ -384,6 +471,7 @@
 
   if (TEST) {
     window.jarvisSimulateClap = function () { trigger('simulated'); };
+    window.jarvisHear = function (t) { heardLine(t); };
     window.jarvisDebug = {
       level: function () { return lastLevel; },
       threshold: function () { return detector.getThreshold(); },

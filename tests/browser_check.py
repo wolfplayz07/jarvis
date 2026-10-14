@@ -16,7 +16,13 @@ def wait_port(p):
             time.sleep(0.1)
     raise RuntimeError('server did not start')
 
-srv = subprocess.Popen([sys.executable, '-m', 'http.server', str(PORT), '--bind', '127.0.0.1'], cwd=ROOT,
+# Serve like GitHub Pages: /jarvis/ (this repo) and /Nova-AI/ (Nova's web/ folder) on one origin.
+import tempfile
+NOVA_WEB = os.environ.get('NOVA_WEB', '/workspace/nova-ai-work/Nova-AI/web')
+SITE = tempfile.mkdtemp(prefix='jarvis-site-')
+os.symlink(ROOT, os.path.join(SITE, 'jarvis')); os.symlink(NOVA_WEB, os.path.join(SITE, 'Nova-AI'))
+BASE = f'http://127.0.0.1:{PORT}/jarvis/'
+srv = subprocess.Popen([sys.executable, '-m', 'http.server', str(PORT), '--bind', '127.0.0.1'], cwd=SITE,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 results = {}
 try:
@@ -31,7 +37,7 @@ try:
         page.on('console', lambda m: errors.append('console: ' + m.text) if m.type == 'error' else None)
         page.on('pageerror', lambda e: errors.append('pageerror: ' + str(e)))
         page.on('response', lambda r: manifest.update(status=r.status, url=r.url) if r.url.endswith('manifest.webmanifest') else None)
-        page.goto(f'http://127.0.0.1:{PORT}/', wait_until='load')
+        page.goto(BASE, wait_until='load')
         sw = page.evaluate("""() => navigator.serviceWorker.ready.then(r => !!r.active)""")
         results['service_worker_active'] = sw
         man = page.evaluate("""() => fetch(document.querySelector('link[rel=manifest]').href).then(r => r.json())""")
@@ -62,7 +68,7 @@ try:
         page2 = ctx2.new_page()
         page2.on('console', lambda m: errors.append('console2: ' + m.text) if m.type == 'error' else None)
         page2.on('pageerror', lambda e: errors.append('pageerror2: ' + str(e)))
-        page2.goto(f'http://127.0.0.1:{PORT}/', wait_until='load')
+        page2.goto(BASE, wait_until='load')
         page2.evaluate("localStorage.clear()")
         page2.reload(wait_until='load')
         results['wake_toggle_default'] = page2.is_checked('#wakeToggle')
@@ -78,8 +84,59 @@ try:
         ctx3.add_init_script('window.SpeechRecognition = undefined; window.webkitSpeechRecognition = undefined;')
         page3 = ctx3.new_page()
         page3.on('pageerror', lambda e: errors.append('pageerror3: ' + str(e)))
-        page3.goto(f'http://127.0.0.1:{PORT}/', wait_until='load')
+        page3.goto(BASE, wait_until='load')
         results['unsupported_note'] = page3.text_content('#wakeNote')
+        # Phase 4: talk to Nova by voice (scripted final transcripts) + speechSynthesis spy.
+        ctx4 = browser.new_context(viewport={'width': 390, 'height': 844}, permissions=['microphone'])
+        ctx4.add_init_script('''
+          (function(){
+            window.__spoken=[];
+            function FakeRec(){ this.n=0; }
+            FakeRec.prototype.start=function(){ var self=this; window.__rec=self; self.live=true; self.list=[];
+              setTimeout(function(){ self.onstart&&self.onstart(); }, 20); };
+            FakeRec.prototype.stop=function(){ var s=this; if(!s.live) return; s.live=false; if(window.__rec===s) window.__rec=null; setTimeout(function(){ s.onend&&s.onend(); },10); };
+            FakeRec.prototype.abort=FakeRec.prototype.stop;
+            window.__say=function(t){ var r=window.__rec; if(!r) return false; var res=[{transcript:t,confidence:0.9}]; res.isFinal=true;
+              r.list.push(res); r.onresult&&r.onresult({resultIndex:r.list.length-1, results:r.list}); return true; };
+            window.SpeechRecognition = undefined; window.webkitSpeechRecognition = FakeRec;
+            var ss = window.speechSynthesis;
+            ss.speak=function(u){ window.__spoken.push(u.text); setTimeout(function(){ u.onend&&u.onend(); }, 30); };
+            ss.cancel=function(){};
+          })();''')
+        page4 = ctx4.new_page()
+        page4.on('console', lambda m: errors.append('console4: ' + m.text) if m.type == 'error' else None)
+        page4.on('pageerror', lambda e: errors.append('pageerror4: ' + str(e)))
+        page4.goto(BASE, wait_until='load')
+        page4.evaluate("localStorage.clear()")
+        page4.reload(wait_until='load')
+        page4.click('#startBtn')
+        page4.wait_for_function('window.jarvisNovaReady === true', timeout=20000)
+        def say(t, wait_answer=True):
+            page4.wait_for_function('!!window.__rec && window.__rec.live', timeout=8000)
+            page4.wait_for_timeout(250)
+            n = page4.evaluate('window.jarvisAnswerCount || 0')
+            page4.evaluate('t => window.__say(t)', t)
+            if wait_answer:
+                page4.wait_for_function('n => (window.jarvisAnswerCount || 0) > n', arg=n, timeout=8000)
+                return page4.evaluate('window.jarvisLastAnswer')
+        results['talk_math'] = say('hey jarvis what is 25% of 200')
+        results['talk_math_spoken'] = page4.evaluate('window.__spoken.indexOf("50.") !== -1')
+        results['talk_math_bubble'] = page4.inner_text('#chat')
+        page4.wait_for_timeout(int(8000 * 1.1))  # let the follow-up window close
+        results['teach_q1'] = say('hey jarvis what is a zorp')
+        results['teach_answer'] = say('a made up word')
+        results['teach_q2'] = say('hey jarvis what is a zorp')
+        results['skip_q'] = say('hey jarvis what is a blarf')
+        results['skip_answer'] = say('never mind')
+        results['open_spotify'] = say('hey jarvis open spotify')
+        results['pulse'] = page4.evaluate('!!document.querySelector("#hudLaunchers a.pulse")')
+        page4.wait_for_timeout(int(8000 * 1.1))
+        before = page4.evaluate('window.__spoken.length')
+        page4.evaluate('window.jarvisLastTrigger = null')
+        say('jarvis', wait_answer=False)
+        page4.wait_for_function('!!window.jarvisLastTrigger', timeout=8000)
+        results['jarvis_alone_greets'] = page4.evaluate('window.jarvisLastTrigger.source') + ' | ' + page4.evaluate('window.__spoken[window.__spoken.length-1]')
+        results['jarvis_alone_no_nova'] = page4.evaluate('window.jarvisAnswerCount') == 7
         results['console_errors'] = errors
         browser.close()
 finally:
@@ -91,6 +148,12 @@ ok = (results.get('service_worker_active') and results.get('manifest_name') == '
       and results.get('wake_toggle_default') and str(results.get('wake_trigger','')).startswith('voice')
       and 'Welcome home' in results.get('wake_greeting', '') and results.get('wake_buttons', 0) > 0
       and 'not supported' in results.get('unsupported_note', '')
+      and results.get('talk_math') == '50.' and results.get('talk_math_spoken')
+      and 'what do you mean by it' in str(results.get('teach_q1'))
+      and str(results.get('teach_answer','')).startswith('got it') and 'a made up word' in str(results.get('teach_q2'))
+      and str(results.get('skip_answer','')).startswith('ok. skipped')
+      and results.get('open_spotify') == 'Tap to open Spotify, sir.' and results.get('pulse')
+      and 'Welcome home' in results.get('jarvis_alone_greets', '') and results.get('jarvis_alone_no_nova')
       and not results.get('console_errors'))
 print('BROWSER CHECK:', 'PASS' if ok else 'FAIL')
 sys.exit(0 if ok else 1)

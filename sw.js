@@ -1,12 +1,14 @@
 /* Jarvis Phone service worker: precache the app shell so it works offline. */
-var CACHE = 'jarvis-v2';
+var CACHE = 'jarvis-v3';
 var SHELL = [
   './',
   './index.html',
-  './styles.css?v=2',
-  './clap.js?v=2',
-  './wake.js?v=2',
-  './app.js?v=2',
+  './styles.css?v=3',
+  './clap.js?v=3',
+  './wake.js?v=3',
+  './brain.js?v=3',
+  './nova-bridge.js?v=3',
+  './app.js?v=3',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
