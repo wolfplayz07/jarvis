@@ -11,7 +11,7 @@ one-tap buttons for your apps (Spotify, YouTube, Chrome, Safari, or anything wit
 - No accounts, no API keys, no analytics, no tracking. Audio never leaves the phone.
 - Free forever. MIT licensed.
 
-**Live:** https://wolfplayz07.github.io/jarvis-phone/
+**Live:** https://wolfplayz07.github.io/jarvis/
 
 ## Install on iPhone (iOS 17+)
 
