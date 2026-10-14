@@ -115,7 +115,7 @@ try:
         page4.wait_for_function('window.jarvisNovaReady === true', timeout=20000)
         def say(t, wait_answer=True):
             page4.wait_for_function('!!window.__rec && window.__rec.live', timeout=8000)
-            page4.wait_for_timeout(250)
+            page4.wait_for_timeout(1300)
             n = page4.evaluate('window.jarvisAnswerCount || 0')
             page4.evaluate('t => window.__say(t)', t)
             if wait_answer:
@@ -124,7 +124,7 @@ try:
         results['talk_math'] = say('hey jarvis what is 25% of 200')
         results['talk_math_spoken'] = page4.evaluate('window.__spoken.indexOf("50.") !== -1')
         results['talk_math_bubble'] = page4.inner_text('#chat')
-        page4.wait_for_timeout(int(8000 * 1.1))  # let the follow-up window close
+        page4.wait_for_timeout(int(12000 * 1.1))  # let the follow-up window close
         results['teach_q1'] = say('hey jarvis what is a zorp')
         results['teach_answer'] = say('a made up word')
         results['teach_q2'] = say('hey jarvis what is a zorp')
@@ -132,12 +132,13 @@ try:
         results['skip_answer'] = say('never mind')
         results['open_spotify'] = say('hey jarvis open spotify')
         results['pulse'] = page4.evaluate('!!document.querySelector("#hudLaunchers a.pulse")')
-        page4.wait_for_timeout(int(8000 * 1.1))
+        page4.wait_for_timeout(int(12000 * 1.1))
         before = page4.evaluate('window.__spoken.length')
         page4.evaluate('window.jarvisLastTrigger = null')
         say('jarvis', wait_answer=False)
         page4.wait_for_function('!!window.jarvisLastTrigger', timeout=8000)
-        results['jarvis_alone_greets'] = page4.evaluate('window.jarvisLastTrigger.source') + ' | ' + page4.evaluate('window.__spoken[window.__spoken.length-1]')
+        results['jarvis_alone_greets'] = page4.evaluate('window.jarvisLastTrigger.source') + ' | ' + page4.inner_text('#greetText')
+        results['jarvis_alone_silent'] = page4.evaluate('window.__spoken.length') == before
         results['jarvis_alone_no_nova'] = page4.evaluate('window.jarvisAnswerCount') == 7
         # Phase 5: text box with no mic and no speech recognition at all.
         ctx5 = browser.new_context(viewport={'width': 390, 'height': 844})
@@ -165,6 +166,7 @@ try:
         page6.goto(BASE, wait_until='load')
         page6.click('#startBtn')
         page6.wait_for_function('window.__starts === 1', timeout=5000)
+        page6.wait_for_timeout(200)
         page6.evaluate("window.__r.onerror({error:'not-allowed'}); window.__r.onend()")
         page6.wait_for_selector('#tapListenBtn:not([hidden])', timeout=3000)
         page6.wait_for_timeout(1500)
@@ -197,6 +199,30 @@ try:
         page7.wait_for_function('(window.jarvisAnswerCount||0) >= 2', timeout=8000)
         results['ptt_answer'] = page7.evaluate('window.jarvisLastAnswer')
         results['ptt_spoken'] = page7.evaluate('window.__spoken.indexOf(window.jarvisLastAnswer) !== -1')
+        # Phase 8: "hey jarvis" alone, recognition ends (onend) in between, then a separate question.
+        page8 = ctx7.new_page()
+        page8.on('pageerror', lambda e: errors.append('pageerror8: ' + str(e)))
+        page8.goto(BASE, wait_until='load')
+        page8.click('#startBtn')
+        page8.wait_for_function('window.jarvisNovaReady === true', timeout=20000)
+        page8.wait_for_function('window.__r && window.__r.live', timeout=5000); page8.wait_for_timeout(250)
+        n0 = page8.evaluate('window.__spoken.length')
+        page8.evaluate("window.__sayAlts(['hey jarvis'])")
+        page8.wait_for_function("window.jarvisLastTrigger && window.jarvisLastTrigger.source.indexOf('voice') === 0", timeout=5000)
+        results['split_wake_silent'] = page8.evaluate('window.__spoken.length') == n0
+        page8.evaluate("window.__r.stop()")  # iOS ends the session between phrases
+        page8.wait_for_function("window.jarvisTapShown === 'ask'", timeout=3000)
+        results['split_tap_to_ask_shown'] = True
+        page8.wait_for_function('window.__r && window.__r.live', timeout=8000); page8.wait_for_timeout(100)
+        page8.evaluate("window.__sayAlts(['what is 25% of 200'])")
+        page8.wait_for_function('(window.jarvisAnswerCount||0) >= 1', timeout=8000)
+        results['split_answer'] = page8.evaluate('window.jarvisLastAnswer')
+        results['split_spoken'] = page8.evaluate("window.__spoken.indexOf('50.') !== -1")
+        # Same session, interim only: sent after ~1.2 s of silence.
+        page8.wait_for_timeout(13000)
+        page8.evaluate('''(function(){ var r=window.__r; var a=[{transcript:'hey jarvis what is 3 + 4',confidence:0.5}]; a.isFinal=false; r.list.push(a); r.onresult({resultIndex:r.list.length-1,results:r.list}); })()''')
+        page8.wait_for_function('(window.jarvisAnswerCount||0) >= 2', timeout=5000)
+        results['interim_answer'] = page8.evaluate('window.jarvisLastAnswer')
         results['console_errors'] = errors
         browser.close()
 finally:
@@ -206,19 +232,21 @@ print(json.dumps(results, indent=2))
 ok = (results.get('service_worker_active') and results.get('manifest_name') == 'Jarvis'
       and results.get('trigger') == 'double clap' and 'Welcome home' in results.get('greeting', '')
       and results.get('wake_toggle_default') and str(results.get('wake_trigger','')).startswith('voice')
-      and 'Welcome home' in results.get('wake_greeting', '') and results.get('wake_buttons', 0) > 0
+      and 'Yes, sir?' in results.get('wake_greeting', '') and results.get('wake_buttons', 0) > 0
       and 'not available' in results.get('unsupported_note', '')
       and results.get('talk_math') == '50.' and results.get('talk_math_spoken')
       and 'what do you mean by it' in str(results.get('teach_q1'))
       and str(results.get('teach_answer','')).startswith('got it') and 'a made up word' in str(results.get('teach_q2'))
       and str(results.get('skip_answer','')).startswith('ok. skipped')
       and results.get('open_spotify') == 'Tap to open Spotify, sir.' and results.get('pulse')
-      and 'Welcome home' in results.get('jarvis_alone_greets', '') and results.get('jarvis_alone_no_nova')
+      and 'Yes, sir?' in results.get('jarvis_alone_greets', '') and results.get('jarvis_alone_silent') and results.get('jarvis_alone_no_nova')
       and results.get('typed_math') == '50.' and results.get('typed_math_spoken')
       and 'not available' in results.get('nomic_wake_note', '')
       and results.get('fatal_no_auto_restart') and results.get('tap_listen_restarts')
       and results.get('alt_wake_answer') == '50.' and 'Heard' in results.get('live_heard', '')
       and results.get('ptt_restarted') and results.get('ptt_answer') == '7.' and results.get('ptt_spoken')
+      and results.get('split_wake_silent') and results.get('split_tap_to_ask_shown')
+      and results.get('split_answer') == '50.' and results.get('split_spoken') and results.get('interim_answer') == '7.'
       and not results.get('console_errors'))
 print('BROWSER CHECK:', 'PASS' if ok else 'FAIL')
 sys.exit(0 if ok else 1)

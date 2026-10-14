@@ -5,7 +5,7 @@
 (function (root) {
   'use strict';
   var Wake = root.JarvisWake || (typeof require === 'function' ? require('./wake.js') : null);
-  var TEACH_MS = 15000, FOLLOW_MS = 8000, AWAIT_MS = 8000;
+  var TEACH_MS = 15000, FOLLOW_MS = 12000, AWAIT_MS = 12000;
 
   function clean(t) {
     return String(t == null ? '' : t).replace(/[\u2018\u2019]/g, "'").replace(/^[\s,.:;!?-]+|[\s,;:-]+$/g, '').replace(/\s+/g, ' ').trim();

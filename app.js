@@ -165,6 +165,7 @@
   // ---------- HUD ----------
   var hudTimer = null;
   function trigger(source) {
+    var byVoice = /^voice/.test(String(source));
     var text = greetingText();
     var hud = $('hud');
     hud.hidden = false;
@@ -174,7 +175,13 @@
     var hl = $('hudLaunchers'); hl.classList.remove('show');
     clearTimeout(hudTimer);
     hudTimer = setTimeout(function () { hl.classList.add('show'); }, 1400);
-    speak(text, function () { session.afterGreet(Date.now()); listenHint(); });
+    if (byVoice) {
+      // Woken by voice: stay silent and keep the SAME recognition session running, so the very next
+      // phrase is the question. (iOS will not restart recognition after speech without a tap.)
+      $('greetText').textContent = 'Yes, sir?';
+      session.afterGreet(Date.now()); listenHint();
+      if (!rec) showTapListen('ask');
+    } else speak(text, function () { session.afterGreet(Date.now()); listenHint(); });
     if (navigator.vibrate) { try { navigator.vibrate([40, 60, 40]); } catch (e) { /* ignore */ } }
     setStatus('Greeting (' + source + ') · ' + new Date().toLocaleTimeString());
     document.dispatchEvent(new CustomEvent('jarvis:trigger', { detail: { source: source, text: text } }));
@@ -416,9 +423,11 @@
       try { r.continuous = true; } catch (e) { /* not supported */ }
       r.interimResults = true; r.lang = 'en-US';
       try { r.maxAlternatives = 5; } catch (e) { /* ignore */ }
-      r.onstart = function () { wakeMsg('Listening for “Jarvis”… (clapping works too)'); };
+      r.onstart = function () { hideTapListen(); wakeMsg('Listening for “Jarvis”… (clapping works too)'); };
       r.onresult = function (e) {
         restartTry = 0;
+        r.__len = e.results.length;
+        if (Date.now() < muteUntil) { doneIndex = e.results.length; return; }
         for (var i = e.resultIndex; i < e.results.length; i++) {
           if (i < doneIndex) continue;
           var res = e.results[i], t = (res[0] && res[0].transcript) || '', alts = [];
@@ -440,7 +449,12 @@
           showTapListen();
         }
       };
-      r.onend = function () { if (rec === r) { rec = null; finalize(); doneIndex = 0; } scheduleRestart(); };
+      r.onend = function () {
+        if (rec === r) { rec = null; finalize(); doneIndex = 0; }
+        // A question window is open but iOS ended listening: ask for a tap instead of waiting silently.
+        if (wakeWanted && !ptt && session.mode(Date.now())) showTapListen('ask');
+        scheduleRestart();
+      };
       rec = r; doneIndex = 0; pendingLine = null;
       r.start();
     } catch (e) {
@@ -456,8 +470,11 @@
   }
   function stopRec() { var r = rec; rec = null; clearTimeout(finalTimer); pendingLine = null; clearTimeout(restartTimer); if (r) { try { r.abort ? r.abort() : r.stop(); } catch (e) { /* ignore */ } } }
   function stopWake(quiet) { wakeWanted = false; stopRec(); heard(''); if (!quiet) wakeMsg(Rec ? 'Voice wake off. Type below, or turn on clap mode.' : 'Speech recognition is not available in this browser. Type below instead.'); }
-  function showTapListen() { var b = $('tapListenBtn'); if (b) b.hidden = false; }
-  function hideTapListen() { var b = $('tapListenBtn'); if (b) b.hidden = true; }
+  function showTapListen(kind) {
+    ['tapListenBtn', 'hudTapBtn'].forEach(function (id) { var b = $(id); if (!b) return; b.hidden = (id === 'hudTapBtn' && kind !== 'ask'); b.textContent = kind === 'ask' ? '🎙 Tap to ask' : '🎙 Tap to listen'; });
+    window.jarvisTapShown = kind || 'listen';
+  }
+  function hideTapListen() { ['tapListenBtn', 'hudTapBtn'].forEach(function (id) { var b = $(id); if (b) b.hidden = true; }); window.jarvisTapShown = ''; }
   function tapListen() {
     // Called from a tap, so iOS allows recognition to start again.
     unlockSpeech(); hideTapListen();
@@ -474,15 +491,23 @@
     unlockSpeech(); loadNova();
     if (session.mode(Date.now())) heardLine(t, 'typed'); else heardLine('jarvis ' + t, 'typed');
   }
-  function pauseWake(why) { pauses[why] = true; if (rec) stopRec(); }
-  function resumeWake(why) { if (!pauses[why]) return; pauses[why] = false; restartTry = 0; if (wakeWanted && !paused()) { clearTimeout(restartTimer); restartTimer = setTimeout(startRec, 150); } }
+  var muteUntil = 0;
+  function pauseWake(why) {
+    if (why === 'speaking' && rec) { muteUntil = Infinity; ignoreUpTo(); return; } // keep iOS session alive, just ignore our own voice
+    pauses[why] = true; if (rec) stopRec();
+  }
+  function ignoreUpTo() { if (rec && rec.__len != null) doneIndex = rec.__len; pendingLine = null; clearTimeout(finalTimer); }
+  function resumeWake(why) {
+    if (why === 'speaking' && muteUntil === Infinity) { muteUntil = Date.now() + 400; ignoreUpTo(); if (!rec && wakeWanted && session.mode(Date.now())) showTapListen('ask'); return; }
+    if (!pauses[why]) return; pauses[why] = false; restartTry = 0; if (wakeWanted && !paused()) { clearTimeout(restartTimer); restartTimer = setTimeout(startRec, 150); } }
 
   // ---------- wire up ----------
   function bind() {
     $('startBtn').addEventListener('click', startListening);
-    $('tapListenBtn').addEventListener('click', tapListen);
+    $('tapListenBtn').addEventListener('click', function () { if (window.jarvisTapShown === 'ask') talkTap(); else tapListen(); });
     $('talkBtn').addEventListener('click', talkTap);
     $('hudTalkBtn').addEventListener('click', talkTap);
+    $('hudTapBtn').addEventListener('click', talkTap);
     $('askForm').addEventListener('submit', typed);
     var ct = $('clapToggle'); ct.checked = !!settings.clap;
     ct.addEventListener('change', function () {
