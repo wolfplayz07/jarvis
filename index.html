@@ -13,7 +13,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/favicon-32.png">
-  <link rel="stylesheet" href="styles.css?v=3">
+  <link rel="stylesheet" href="styles.css?v=4">
 </head>
 <body>
   <div class="scan" aria-hidden="true"></div>
@@ -28,8 +28,13 @@
         <span class="reactor small" aria-hidden="true"><i></i><i></i><i></i><b></b></span>
         <span class="start-label">START</span>
       </button>
-      <p class="hint">Tap Start, allow the microphone, then say “Jarvis” or clap twice.</p>
+      <p class="hint">Tap Start, then say “Jarvis” (allow Speech Recognition if asked), or just type below.</p>
     </section>
+
+ <form id="askForm" class="ask-form panel" autocomplete="off">
+      <input id="askInput" type="text" placeholder="Type to Jarvis… e.g. what is 25% of 200" aria-label="Type to Jarvis" enterkeyhint="send">
+      <button id="askBtn" type="submit">Send</button>
+    </form>
 
     <section id="listenView" class="panel" hidden>
       <div class="row between">
@@ -38,6 +43,8 @@
       </div>
       <p id="wakeStatus" class="wake-status" role="status"></p>
       <p id="wakeHeard" class="wake-heard" aria-live="off"></p>
+      <button id="tapListenBtn" class="start-btn tap-listen" type="button" hidden>🎙 Tap to listen</button>
+      <label class="toggle"><input id="clapToggle" type="checkbox"> Clap mode (uses the microphone; turns voice wake off while on)</label>
       <canvas id="meter" class="meter" width="600" height="90" aria-label="Microphone level meter"></canvas>
       <div class="legend"><span><i class="sw lvl"></i>level</span><span><i class="sw thr"></i>clap threshold</span><span id="clapCount">claps: 0</span></div>
       <label class="field">Sensitivity <output id="sensOut">50</output>
@@ -147,10 +154,10 @@
     <button id="hudClose" class="ghost" type="button">Dismiss</button>
   </div>
 
-  <script src="clap.js?v=3"></script>
-  <script src="wake.js?v=3"></script>
-  <script src="brain.js?v=3"></script>
-  <script src="nova-bridge.js?v=3"></script>
-  <script src="app.js?v=3"></script>
+  <script src="clap.js?v=4"></script>
+  <script src="wake.js?v=4"></script>
+  <script src="brain.js?v=4"></script>
+  <script src="nova-bridge.js?v=4"></script>
+  <script src="app.js?v=4"></script>
 </body>
 </html>

@@ -113,3 +113,10 @@ output { float: right; color: var(--cyan); }
 .chat-hint{position:relative;z-index:2;text-align:center;font-size:12px;opacity:.7;margin:6px 0 0}
 .launch.pulse{box-shadow:0 0 0 3px #2fe0ff,0 0 18px #2fe0ff;animation:jpulse 1s ease-in-out infinite}
 @keyframes jpulse{50%{transform:scale(1.06)}}
+.ask-form{display:flex;gap:8px;align-items:center}
+.ask-form input{flex:1;min-width:0;font-size:16px;padding:10px 12px;border-radius:10px;border:1px solid #2b5b7a;background:#071622;color:#e6f6ff}
+.ask-form button{font-size:16px;padding:10px 14px;border-radius:10px}
+.tap-listen{width:100%;height:auto;padding:22px;font-size:22px;margin:10px 0;border-radius:16px}
+.ask-form{position:fixed;left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom));z-index:1000;margin:0}
+#app{padding-bottom:90px}
+.hud{padding-bottom:80px}

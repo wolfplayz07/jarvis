@@ -20,6 +20,7 @@
     pitch: 0.9,
     shortcutName: 'Jarvis',
     wake: true,
+    clap: false,
     launchers: DEFAULT_LAUNCHERS
   };
 
@@ -258,9 +259,25 @@
   var clapCount = 0;
   var lastLevel = 0, levelHist = [];
 
+  var running = false;
+  // Start tap: everything that iOS needs a gesture for happens right here, synchronously,
+  // before any mic request. Voice wake and the clap mic never run at the same time.
+  function startListening() {
+    unlockSpeech();
+    loadNova();
+    running = true;
+    $('startView').hidden = true; $('listenView').hidden = false;
+    hideTapListen();
+    if (settings.clap) { stopWake(true); setStatus('Clap mode · asking for the microphone…'); return startMic(); }
+    setStatus(Rec ? 'Listening · say “Jarvis” (or type below)' : 'Voice not supported in this browser · type below');
+    if (settings.wake) startWake(); else wakeMsg('Voice wake off. Type below, or turn on clap mode.');
+    return Promise.resolve();
+  }
+  function loadNova() {
+    return NovaBridge.load().then(function () { window.jarvisNovaReady = true; }).catch(function () { window.jarvisNovaReady = false; });
+  }
   function startMic() {
     if (audio) return Promise.resolve();
-    unlockSpeech();
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setStatus('Microphone not available here. Open in Safari over https.');
       return Promise.resolve();
@@ -283,23 +300,25 @@
         detector.reset();
         audio.timer = setInterval(tick, 12);
         audio.raf = requestAnimationFrame(draw);
-        $('startView').hidden = true; $('listenView').hidden = false;
-        setStatus('Listening · clap twice or say “Jarvis”');
-        if (settings.wake) startWake(); else stopWake();
-        NovaBridge.load().then(function () { window.jarvisNovaReady = true; }).catch(function () { window.jarvisNovaReady = false; });
+        setStatus('Clap mode · clap twice (or type below)');
       });
     }).catch(function (err) {
       try { ctx.close(); } catch (e) { /* ignore */ }
-      setStatus('Mic blocked: ' + (err && err.name ? err.name : 'error') + '. Allow it in Settings › Safari › Microphone.');
+      setStatus('Mic blocked: ' + (err && err.name ? err.name : 'error') + '. Clap mode needs the microphone. You can still type below.');
     });
   }
-  function stopMic() {
+  function closeMic() {
     if (!audio) return;
     clearInterval(audio.timer); cancelAnimationFrame(audio.raf);
     audio.stream.getTracks().forEach(function (t) { t.stop(); });
     try { audio.ctx.close(); } catch (e) { /* ignore */ }
     audio = null;
+  }
+  function stopMic() {
+    running = false;
+    closeMic();
     stopWake();
+    hideTapListen();
     $('startView').hidden = false; $('listenView').hidden = true;
     setStatus('Stopped · tap Start');
   }
@@ -344,7 +363,7 @@
   function paused() { for (var k in pauses) if (pauses[k]) return true; return false; }
   function scheduleRestart() {
     clearTimeout(restartTimer);
-    if (!wakeWanted || wakeFatal || paused() || !audio) return;
+    if (!wakeWanted || wakeFatal || paused() || !running) return;
     var d = JarvisWake.backoff(restartTry++);
     restartTimer = setTimeout(startRec, d);
   }
@@ -378,9 +397,10 @@
       };
       r.onerror = function (e) {
         var err = e && e.error;
-        if (JarvisWake.isFatalError(err)) {
+        if (JarvisWake.isFatalError(err) || err === 'audio-capture') {
           wakeFatal = true;
-          wakeMsg('Speech recognition not allowed (' + err + '). Allow Speech Recognition in Settings › Privacy & Security, then tap Stop and Start. Clapping still works.');
+          wakeMsg('iPhone stopped the listening (' + err + '). Tap “Tap to listen” to start again, or type below.');
+          showTapListen();
         }
       };
       r.onend = function () { if (rec === r) { rec = null; finalize(); doneIndex = 0; } scheduleRestart(); };
@@ -388,23 +408,50 @@
       r.start();
     } catch (e) {
       rec = null;
-      wakeMsg('Voice wake could not start here, so clap twice instead.');
-      scheduleRestart();
+      wakeMsg('Voice wake could not start here. Tap “Tap to listen”, or type below.');
+      showTapListen();
     }
   }
   function startWake() {
-    if (!Rec) { wakeMsg('Voice wake not supported here, clap twice instead.'); return; }
+    if (!Rec) { wakeMsg('Speech recognition is not available in this browser, so voice wake can’t work here. Type below instead.'); return; }
     wakeWanted = true; wakeFatal = false; restartTry = 0;
     startRec();
   }
   function stopRec() { var r = rec; rec = null; clearTimeout(finalTimer); pendingLine = null; clearTimeout(restartTimer); if (r) { try { r.abort ? r.abort() : r.stop(); } catch (e) { /* ignore */ } } }
-  function stopWake() { wakeWanted = false; stopRec(); heard(''); wakeMsg(Rec ? 'Voice wake off. Clap twice to wake Jarvis.' : 'Voice wake not supported here, clap twice instead.'); }
+  function stopWake(quiet) { wakeWanted = false; stopRec(); heard(''); if (!quiet) wakeMsg(Rec ? 'Voice wake off. Type below, or turn on clap mode.' : 'Speech recognition is not available in this browser. Type below instead.'); }
+  function showTapListen() { var b = $('tapListenBtn'); if (b) b.hidden = false; }
+  function hideTapListen() { var b = $('tapListenBtn'); if (b) b.hidden = true; }
+  function tapListen() {
+    // Called from a tap, so iOS allows recognition to start again.
+    unlockSpeech(); hideTapListen();
+    if (!running) return startListening();
+    if (settings.clap) return;
+    settings.wake = true; save(); $('wakeToggle').checked = true;
+    stopRec(); wakeWanted = true; wakeFatal = false; restartTry = 0; startRec();
+  }
+  function typed(e) {
+    if (e) e.preventDefault();
+    var box = $('askInput'), t = String(box.value || '').trim();
+    if (!t) return;
+    box.value = '';
+    unlockSpeech(); loadNova();
+    if (session.mode(Date.now())) heardLine(t, 'typed'); else heardLine('jarvis ' + t, 'typed');
+  }
   function pauseWake(why) { pauses[why] = true; if (rec) stopRec(); }
   function resumeWake(why) { if (!pauses[why]) return; pauses[why] = false; restartTry = 0; if (wakeWanted && !paused()) { clearTimeout(restartTimer); restartTimer = setTimeout(startRec, 150); } }
 
   // ---------- wire up ----------
   function bind() {
-    $('startBtn').addEventListener('click', startMic);
+    $('startBtn').addEventListener('click', startListening);
+    $('tapListenBtn').addEventListener('click', tapListen);
+    $('askForm').addEventListener('submit', typed);
+    var ct = $('clapToggle'); ct.checked = !!settings.clap;
+    ct.addEventListener('change', function () {
+      settings.clap = ct.checked; save();
+      if (!running) return;
+      if (ct.checked) { stopWake(true); startMic(); }
+      else { closeMic(); setStatus('Listening · say “Jarvis” (or type below)'); if (settings.wake) startWake(); }
+    });
     $('stopBtn').addEventListener('click', stopMic);
     $('testClapBtn').addEventListener('click', function () { trigger('button'); });
     $('hudClose').addEventListener('click', closeHud);
@@ -434,13 +481,13 @@
     var wt = $('wakeToggle');
     if (!Rec) {
       wt.disabled = true; wt.checked = false;
-      wakeMsg('Voice wake not supported here, clap twice instead.');
+      wakeMsg('Speech recognition is not available in this browser, so voice wake can’t work here. Type below, or turn on clap mode.');
     } else {
       wt.checked = !!settings.wake;
       wakeMsg(settings.wake ? 'Tap Start, then say “Jarvis” or “Hey Jarvis”.' : 'Voice wake off. Clap twice to wake Jarvis.');
       wt.addEventListener('change', function () {
         settings.wake = wt.checked; save();
-        if (wt.checked) { if (audio) startWake(); else wakeMsg('Tap Start to begin listening.'); }
+        if (wt.checked) { if (running && !settings.clap) startWake(); else if (!running) wakeMsg('Tap Start to begin listening.'); }
         else stopWake();
       });
     }
@@ -453,8 +500,8 @@
     } else refreshVoices();
 
     document.addEventListener('visibilitychange', function () {
-      if (document.hidden) { pauseWake('hidden'); if (audio) setStatus('Paused while in the background'); }
-      else { if (audio) { audio.ctx.resume().catch(function () {}); setStatus('Listening · clap twice or say “Jarvis”'); } resumeWake('hidden'); }
+      if (document.hidden) { pauseWake('hidden'); if (running) setStatus('Paused while in the background'); }
+      else { if (audio) { audio.ctx.resume().catch(function () {}); setStatus('Clap mode · clap twice (or type below)'); } else if (running) setStatus('Listening · say “Jarvis” (or type below)'); resumeWake('hidden'); }
     });
 
     renderShortcut();
