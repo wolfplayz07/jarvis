@@ -66,3 +66,9 @@ test('voice launch commands', () => {
 test('speakable flattens lists', () => {
   assert.strictEqual(B.speakable('- name: Tony\n- city: Malibu'), 'name: Tony. city: Malibu');
 });
+
+test('mishears still pull out the question', () => {
+  assert.strictEqual(B.extractQuery('hey travis what is 25% of 200'), 'what is 25% of 200');
+  assert.strictEqual(B.extractQuery("java's open spotify"), 'open spotify');
+  assert.strictEqual(B.extractQuery('service'), '');
+});

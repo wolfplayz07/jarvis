@@ -359,7 +359,34 @@
   var pauses = {};
   var wakeDebounce = JarvisWake.createDebouncer(3000);
   function wakeMsg(t) { var n = $('wakeNote'); if (n) n.textContent = t; var w = $('wakeStatus'); if (w) w.textContent = t; }
-  function heard(t) { var h = $('wakeHeard'); if (h) h.textContent = t ? '“' + t + '”' : ''; }
+  function heard(t, alts, final) {
+    var h = $('wakeHeard'); if (h) h.textContent = t ? '“' + t + '”' : '';
+    var lv = $('liveHeard');
+    if (lv) {
+      var more = (alts || []).filter(function (x) { return x && x !== t; }).slice(0, 3);
+      lv.textContent = t ? 'Heard' + (final ? '' : ' (still listening)') + ': “' + t + '”' + (more.length ? '  ·  or: ' + more.map(function (x) { return '“' + x + '”'; }).join(', ') : '') : '';
+    }
+    window.jarvisHeard = t || '';
+  }
+  // Push-to-talk: the next phrase goes straight to Nova, no wake word needed.
+  var ptt = false, pttTimer = null;
+  function setPtt(on) {
+    ptt = on; clearTimeout(pttTimer);
+    ['talkBtn', 'hudTalkBtn'].forEach(function (id) { var b = $(id); if (b) { b.classList.toggle('on', on); b.textContent = on ? '🎙 Listening… speak now' : '🎙 Tap to talk'; } });
+    if (on) pttTimer = setTimeout(function () { setPtt(false); }, 10000);
+  }
+  function talkTap() {
+    unlockSpeech(); loadNova();
+    if (!Rec) { setStatus('Voice is not available here. Type below.'); var i = $('askInput'); if (i) i.focus(); return; }
+    if (!running) { settings.clap = false; $('clapToggle').checked = false; startListening(); }
+    if (settings.clap) { settings.clap = false; save(); $('clapToggle').checked = false; closeMic(); }
+    try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
+    pauses = {};
+    hideTapListen();
+    setPtt(true);
+    // Restart recognition inside this tap so iOS allows it.
+    stopRec(); wakeWanted = true; wakeFatal = false; restartTry = 0; startRec();
+  }
   function paused() { for (var k in pauses) if (pauses[k]) return true; return false; }
   function scheduleRestart() {
     clearTimeout(restartTimer);
@@ -373,6 +400,12 @@
     var p = pendingLine; pendingLine = null;
     if (!p) return;
     doneIndex = p.index + 1;
+    if (ptt && String(p.text).trim()) {
+      setPtt(false);
+      if (session.mode(Date.now()) || JarvisWake.matchWake(p.text)) heardLine(p.text, 'talk');
+      else heardLine('jarvis ' + p.text, 'talk');
+      return;
+    }
     heardLine(p.text);
   }
   function showHudPending() { var g = $('greetText'); showHud(); if (g && !g.textContent) g.textContent = '…'; }
@@ -380,16 +413,20 @@
     if (!Rec || rec || !wakeWanted || wakeFatal || paused()) return;
     try {
       var r = new Rec();
-      r.continuous = true; r.interimResults = true;
-      r.lang = (navigator.language && /^en/i.test(navigator.language)) ? navigator.language : 'en-US';
+      try { r.continuous = true; } catch (e) { /* not supported */ }
+      r.interimResults = true; r.lang = 'en-US';
+      try { r.maxAlternatives = 5; } catch (e) { /* ignore */ }
       r.onstart = function () { wakeMsg('Listening for “Jarvis”… (clapping works too)'); };
       r.onresult = function (e) {
         restartTry = 0;
         for (var i = e.resultIndex; i < e.results.length; i++) {
           if (i < doneIndex) continue;
-          var t = (e.results[i][0] && e.results[i][0].transcript) || '';
-          heard(t);
-          if (JarvisWake.matchWake(t) && !session.mode(Date.now())) showHudPending();
+          var res = e.results[i], t = (res[0] && res[0].transcript) || '', alts = [];
+          for (var a = 0; a < res.length; a++) if (res[a] && res[a].transcript) alts.push(res[a].transcript);
+          // Any alternative that contains the wake word wins, so a mishear in #1 still wakes.
+          if (!JarvisWake.matchWake(t)) for (var a2 = 1; a2 < alts.length; a2++) if (JarvisWake.matchWake(alts[a2])) { t = alts[a2]; break; }
+          heard(t, alts, res.isFinal);
+          if (!ptt && JarvisWake.matchWake(t) && !session.mode(Date.now())) showHudPending();
           pendingLine = { text: t, index: i };
           clearTimeout(finalTimer);
           if (e.results[i].isFinal) finalize(); else finalTimer = setTimeout(finalize, 1200);
@@ -444,6 +481,8 @@
   function bind() {
     $('startBtn').addEventListener('click', startListening);
     $('tapListenBtn').addEventListener('click', tapListen);
+    $('talkBtn').addEventListener('click', talkTap);
+    $('hudTalkBtn').addEventListener('click', talkTap);
     $('askForm').addEventListener('submit', typed);
     var ct = $('clapToggle'); ct.checked = !!settings.clap;
     ct.addEventListener('change', function () {

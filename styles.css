@@ -120,3 +120,6 @@ output { float: right; color: var(--cyan); }
 .ask-form{position:fixed;left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom));z-index:1000;margin:0}
 #app{padding-bottom:90px}
 .hud{padding-bottom:80px}
+.talk-btn{display:block;width:100%;padding:20px;margin:10px 0;font-size:22px;font-weight:700;border-radius:16px;border:2px solid #39c6ff;background:#0b2a3d;color:#e6f6ff}
+.talk-btn.on{background:#39c6ff;color:#04121c;animation:pulse 1s infinite}
+.live-heard{min-height:1.2em;font-size:14px;opacity:.8;margin:6px 0;word-break:break-word}

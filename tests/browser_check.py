@@ -171,6 +171,32 @@ try:
         results['fatal_no_auto_restart'] = page6.evaluate('window.__starts') == 1
         page6.click('#tapListenBtn')
         results['tap_listen_restarts'] = page6.evaluate('window.__starts') == 2 and page6.is_hidden('#tapListenBtn')
+        # Phase 7: mishear only in alternative #2 still wakes; Tap to talk skips the wake word; live transcript.
+        ctx7 = browser.new_context(viewport={'width': 390, 'height': 844})
+        ctx7.add_init_script('''(function(){ window.__spoken=[]; window.__starts=0;
+          function R(){} R.prototype.start=function(){ var s=this; window.__starts++; window.__r=s; s.live=true; s.list=[]; setTimeout(function(){ s.onstart&&s.onstart(); },20); };
+          R.prototype.stop=function(){ var s=this; if(!s.live) return; s.live=false; setTimeout(function(){ s.onend&&s.onend(); },10); }; R.prototype.abort=R.prototype.stop;
+          window.__sayAlts=function(alts){ var r=window.__r; var res=alts.map(function(t){return {transcript:t,confidence:0.5};}); res.isFinal=true; r.list.push(res); r.onresult({resultIndex:r.list.length-1,results:r.list}); };
+          window.SpeechRecognition=undefined; window.webkitSpeechRecognition=R;
+          var ss=window.speechSynthesis; ss.speak=function(u){ window.__spoken.push(u.text); setTimeout(function(){ u.onend&&u.onend(); },30); }; ss.cancel=function(){}; })();''')
+        page7 = ctx7.new_page()
+        page7.on('pageerror', lambda e: errors.append('pageerror7: ' + str(e)))
+        page7.goto(BASE, wait_until='load')
+        page7.click('#startBtn')
+        page7.wait_for_function('window.jarvisNovaReady === true', timeout=20000)
+        page7.wait_for_function('window.__r && window.__r.live', timeout=5000); page7.wait_for_timeout(250)
+        page7.evaluate("window.__sayAlts(['hey garbage what is 25% of 200', 'hey jarvis what is 25% of 200'])")
+        page7.wait_for_function('(window.jarvisAnswerCount||0) >= 1', timeout=8000)
+        results['alt_wake_answer'] = page7.evaluate('window.jarvisLastAnswer')
+        results['live_heard'] = page7.inner_text('#liveHeard')
+        page7.wait_for_timeout(9500)
+        page7.click('#hudTalkBtn')
+        results['ptt_restarted'] = page7.evaluate('window.__starts') >= 2
+        page7.wait_for_function('window.__r && window.__r.live', timeout=5000); page7.wait_for_timeout(100)
+        page7.evaluate("window.__sayAlts(['what is 3 + 4'])")
+        page7.wait_for_function('(window.jarvisAnswerCount||0) >= 2', timeout=8000)
+        results['ptt_answer'] = page7.evaluate('window.jarvisLastAnswer')
+        results['ptt_spoken'] = page7.evaluate('window.__spoken.indexOf(window.jarvisLastAnswer) !== -1')
         results['console_errors'] = errors
         browser.close()
 finally:
@@ -191,6 +217,8 @@ ok = (results.get('service_worker_active') and results.get('manifest_name') == '
       and results.get('typed_math') == '50.' and results.get('typed_math_spoken')
       and 'not available' in results.get('nomic_wake_note', '')
       and results.get('fatal_no_auto_restart') and results.get('tap_listen_restarts')
+      and results.get('alt_wake_answer') == '50.' and 'Heard' in results.get('live_heard', '')
+      and results.get('ptt_restarted') and results.get('ptt_answer') == '7.' and results.get('ptt_spoken')
       and not results.get('console_errors'))
 print('BROWSER CHECK:', 'PASS' if ok else 'FAIL')
 sys.exit(0 if ok else 1)

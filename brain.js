@@ -4,8 +4,7 @@
  */
 (function (root) {
   'use strict';
-  var NAME = '(?:jarvis|jarvi|jervis|jarvas|jarves|jarviss)';
-  var WAKE_RE = new RegExp('^(?:.*?[^a-z])?(?:(?:hey|hi|ok|okay|yo|hay)\\s+)?' + NAME + "(?:'s|s)?(?=$|[^a-z])", 'i');
+  var Wake = root.JarvisWake || (typeof require === 'function' ? require('./wake.js') : null);
   var TEACH_MS = 15000, FOLLOW_MS = 8000, AWAIT_MS = 8000;
 
   function clean(t) {
@@ -14,9 +13,9 @@
   // Text after the wake phrase ("hey jarvis, what is a photo?" -> "what is a photo?"). '' when nothing follows.
   function extractQuery(text) {
     var t = String(text == null ? '' : text).replace(/[\u2018\u2019]/g, "'");
-    var m = WAKE_RE.exec(t);
-    if (!m) return null;
-    var rest = clean(t.slice(m[0].length));
+    var w = Wake.findWake(t);
+    if (!w) return null;
+    var rest = clean(t.slice(w.end));
     return /^[.!?]*$/.test(rest) ? '' : rest;
   }
   // Nova asked something back: next line (no wake word) is the teaching answer.
