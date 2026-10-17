@@ -13,7 +13,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/favicon-32.png">
-  <link rel="stylesheet" href="styles.css?v=6">
+  <link rel="stylesheet" href="styles.css?v=7">
 </head>
 <body>
   <div class="scan" aria-hidden="true"></div>
@@ -28,13 +28,10 @@
         <span class="reactor small" aria-hidden="true"><i></i><i></i><i></i><b></b></span>
         <span class="start-label">START</span>
       </button>
-      <p class="hint">Tap Start, then say “Jarvis” (allow Speech Recognition if asked), or just type below.</p>
+      <p class="hint">Easiest: hold the 🎙 button at the bottom while you talk, then let go. Start is only for hands-free “Jarvis” and clap mode.</p>
     </section>
 
- <form id="askForm" class="ask-form panel" autocomplete="off">
-      <input id="askInput" type="text" placeholder="Type to Jarvis… e.g. what is 25% of 200" aria-label="Type to Jarvis" enterkeyhint="send">
-      <button id="askBtn" type="submit">Send</button>
-    </form>
+
 
     <section id="listenView" class="panel" hidden>
       <div class="row between">
@@ -93,9 +90,19 @@
       </ul>
     </details>
 
+    <details class="panel" id="dbgPanel">
+      <summary>Voice engine &amp; debug</summary>
+      <pre id="dbgText" class="dbg"></pre>
+      <label class="field">Engine
+        <select id="engineSel"><option value="auto">Auto (best for this phone)</option><option value="safari">Safari speech</option><option value="local">On-device (Whisper, ~70 MB one-time download)</option></select>
+      </label>
+      <button id="resetEngine" class="ghost" type="button">Retry Safari speech</button>
+      <p class="note">On-device speech runs a small Whisper model on your phone. It is downloaded once from this site and kept for offline use. Your voice never leaves the phone.</p>
+    </details>
+
     <details class="panel" id="wakePanel">
       <summary>“Jarvis” voice wake</summary>
-      <label class="toggle"><input id="wakeToggle" type="checkbox" checked> Wake when I say “Jarvis” or “Hey Jarvis”</label>
+      <label class="toggle"><input id="wakeToggle" type="checkbox"> Hands-free: wake when I say “Jarvis” (optional, may not work on iPhone)</label>
       <p id="wakeNote" class="note"></p>
       <ul class="steps">
         <li>Jarvis only listens while this app is open on screen. iPhone web apps can’t listen in the background or with the screen locked.</li>
@@ -158,10 +165,30 @@
     <button id="hudClose" class="ghost" type="button">Dismiss</button>
   </div>
 
-  <script src="clap.js?v=6"></script>
-  <script src="wake.js?v=6"></script>
-  <script src="brain.js?v=6"></script>
-  <script src="nova-bridge.js?v=6"></script>
-  <script src="app.js?v=6"></script>
+  <section id="talkDock" class="talk-dock" aria-label="Talk to Jarvis">
+      <div class="talk-row">
+        <button id="holdBtn" class="hold-btn idle" type="button" aria-pressed="false" aria-label="Hold to talk">
+          <span class="hold-icon" aria-hidden="true">🎙</span><span class="hold-label">HOLD<br>to talk</span>
+        </button>
+        <div class="talk-info">
+          <div id="talkState" class="talk-state" role="status">Idle · hold to talk</div>
+          <div id="heardLine" class="heard-line" aria-live="polite"></div>
+          <canvas id="pttMeter" class="ptt-meter" width="300" height="8" aria-label="Microphone level"></canvas>
+          <div id="modelProgress" class="model-progress" hidden></div>
+        </div>
+      </div>
+      <form id="askForm" class="ask-form" autocomplete="off">
+      <input id="askInput" type="text" placeholder="Type to Jarvis… e.g. what is 25% of 200" aria-label="Type to Jarvis" enterkeyhint="send">
+      <button id="askBtn" type="submit">Send</button>
+    </form>
+    </section>
+
+  <script src="clap.js?v=7"></script>
+  <script src="wake.js?v=7"></script>
+  <script src="brain.js?v=7"></script>
+  <script src="nova-bridge.js?v=7"></script>
+  <script src="ptt.js?v=7"></script>
+  <script src="app.js?v=7"></script>
+  <script src="talk.js?v=7"></script>
 </body>
 </html>

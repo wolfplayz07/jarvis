@@ -6,12 +6,33 @@ Tap **Start**, clap twice, and the phone plays an arc-reactor HUD, says
 "Good evening, sir. Welcome home." in the best British voice it has, and shows
 one-tap buttons for your apps (Spotify, YouTube, Chrome, Safari, or anything with a link).
 
-- Plain HTML, CSS and JavaScript. No build step, no dependencies.
+- Plain HTML, CSS and JavaScript. No build step. The on-device speech engine uses Transformers.js (jsDelivr, pinned)
+  and self-hosted ONNX Runtime Web and Whisper tiny.en (see `vendor/README.md` and `models/README.md`).
 - Works offline once installed (service worker).
 - No accounts, no API keys, no analytics, no tracking. Audio never leaves the phone.
 - Free forever. MIT licensed.
 
 **Live:** https://wolfplayz07.github.io/jarvis/
+
+## Talk to Jarvis: Hold to talk (v7)
+
+The big 🎙 button at the bottom is the main way to talk, and it works in the Home Screen app.
+Hold it while you speak and let go to send. A quick tap starts listening, and a second tap sends.
+The state shows **Idle**, **Listening** (red pulse), **Thinking** or **Speaking**, with a live
+"Heard:" line and a level meter. Open **Voice engine & debug** to see the engine, mic permission,
+model status, level and the last error.
+
+Two speech engines, chosen automatically:
+
+- **Safari speech** (`webkitSpeechRecognition`) in a normal Safari tab.
+- **On-device** Whisper tiny.en (Transformers.js + ONNX Runtime WASM) when Safari speech is missing,
+  fails, or you are in the Home Screen app, where Apple does not allow it. The model (about 41 MB)
+  and ONNX runtime (about 27 MB) are served from this site (Transformers.js itself from jsDelivr, pinned), downloaded once with a progress bar, and
+  cached for offline use. Your voice never leaves the phone. The mic is only open while the
+  button is held and is released right after.
+
+Hands-free "Jarvis" wake is still there but optional and off by default. Apple blocks it in
+Home Screen web apps.
 
 ## Install on iPhone (iOS 17+)
 
@@ -43,9 +64,10 @@ one-tap buttons for your apps (Spotify, YouTube, Chrome, Safari, or anything wit
 ## Development
 
 ```
-node --test tests/                 # clap detector unit tests
+node --test tests/                 # unit tests (clap, wake, brain, push-to-talk, engine choice)
 python3 -m http.server 8000        # then open http://localhost:8000/
 python3 tests/browser_check.py     # headless Chromium check (needs playwright)
+python3 tests/webkit_check.py      # headless WebKit check: mic denied + on-device Whisper
 ```
 
 `clap.js` is a pure function module: feed it `(level, timeMs)` frames and it reports claps and

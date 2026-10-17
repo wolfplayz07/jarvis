@@ -25,6 +25,7 @@ BASE = f'http://127.0.0.1:{PORT}/jarvis/'
 srv = subprocess.Popen([sys.executable, '-m', 'http.server', str(PORT), '--bind', '127.0.0.1'], cwd=SITE,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 results = {}
+WAKEON = "try{ if(!localStorage.getItem('jarvis.settings.v1')) localStorage.setItem('jarvis.settings.v1', JSON.stringify({wake:true})); localStorage.setItem('jarvis.wakeDefault.v3','1'); }catch(e){}"
 try:
     wait_port(PORT)
     with sync_playwright() as p:
@@ -56,6 +57,7 @@ try:
         results['hud_launchers'] = page.eval_on_selector_all('#hudLaunchers a', 'els => els.map(e => e.textContent + " -> " + e.getAttribute("href"))')
         # Phase 2: stubbed speech recognition that hears "hey jarvis".
         ctx2 = browser.new_context(viewport={'width': 390, 'height': 844}, permissions=['microphone'])
+        ctx2.add_init_script(WAKEON)
         ctx2.add_init_script('''
           (function(){
             function FakeRec(){ this.continuous=false; this.interimResults=false; this.lang=''; window.__fakeRecs=(window.__fakeRecs||0)+1; }
@@ -73,7 +75,7 @@ try:
         page2.goto(BASE, wait_until='load')
         page2.evaluate("localStorage.clear()")
         page2.reload(wait_until='load')
-        results['wake_toggle_default'] = page2.is_checked('#wakeToggle')
+        results['wake_toggle_on_when_chosen'] = page2.is_checked('#wakeToggle')
         page2.click('#startBtn')
         page2.wait_for_function("window.jarvisLastTrigger && window.jarvisLastTrigger.source.indexOf('voice') === 0", timeout=8000)
         results['wake_trigger'] = page2.evaluate('window.jarvisLastTrigger.source')
@@ -90,6 +92,7 @@ try:
         results['unsupported_note'] = page3.text_content('#wakeNote')
         # Phase 4: talk to Nova by voice (scripted final transcripts) + speechSynthesis spy.
         ctx4 = browser.new_context(viewport={'width': 390, 'height': 844}, permissions=['microphone'])
+        ctx4.add_init_script(WAKEON)
         ctx4.add_init_script('''
           (function(){
             window.__spoken=[];
@@ -157,6 +160,7 @@ try:
         results['typed_math_spoken'] = page5.evaluate('window.__spoken.indexOf("50.") !== -1')
         # Phase 6: iOS kills recognition with not-allowed -> big "Tap to listen" button restarts it.
         ctx6 = browser.new_context(viewport={'width': 390, 'height': 844})
+        ctx6.add_init_script(WAKEON)
         ctx6.add_init_script('''(function(){ window.__starts=0;
           function R(){} R.prototype.start=function(){ var s=this; window.__starts++; window.__r=s; setTimeout(function(){ s.onstart&&s.onstart(); },20); };
           R.prototype.stop=function(){ var s=this; setTimeout(function(){ s.onend&&s.onend(); },10); }; R.prototype.abort=R.prototype.stop;
@@ -175,6 +179,7 @@ try:
         results['tap_listen_restarts'] = page6.evaluate('window.__starts') == 2 and page6.is_hidden('#tapListenBtn')
         # Phase 7: mishear only in alternative #2 still wakes; Tap to talk skips the wake word; live transcript.
         ctx7 = browser.new_context(viewport={'width': 390, 'height': 844})
+        ctx7.add_init_script(WAKEON)
         ctx7.add_init_script('''(function(){ window.__spoken=[]; window.__starts=0;
           function R(){} R.prototype.start=function(){ var s=this; window.__starts++; window.__r=s; s.live=true; s.list=[]; setTimeout(function(){ s.onstart&&s.onstart(); },20); };
           R.prototype.stop=function(){ var s=this; if(!s.live) return; s.live=false; setTimeout(function(){ s.onend&&s.onend(); },10); }; R.prototype.abort=R.prototype.stop;
@@ -223,15 +228,81 @@ try:
         page8.evaluate('''(function(){ var r=window.__r; var a=[{transcript:'hey jarvis what is 3 + 4',confidence:0.5}]; a.isFinal=false; r.list.push(a); r.onresult({resultIndex:r.list.length-1,results:r.list}); })()''')
         page8.wait_for_function('(window.jarvisAnswerCount||0) >= 2', timeout=5000)
         results['interim_answer'] = page8.evaluate('window.jarvisLastAnswer')
-        results['console_errors'] = errors
+        # Phase 9 (v7): Hold to talk with Safari speech (stubbed). Hands-free wake is off by default.
+        ctx9 = browser.new_context(viewport={'width': 390, 'height': 844})
+        ctx9.add_init_script('''(function(){ window.__spoken=[]; window.__recs=0; window.__mode=window.__mode||'ok';
+          function R(){ window.__recs++; } R.prototype.start=function(){ var s=this; window.__r=s;
+            if (window.__mode==='fail'){ setTimeout(function(){ s.onerror&&s.onerror({error:'service-not-allowed'}); s.onend&&s.onend(); },30); return; }
+            setTimeout(function(){ s.onstart&&s.onstart(); },20);
+            setTimeout(function(){ var a=[{transcript:'what is 25% of 200',confidence:0.9}]; a.isFinal=true; s.onresult&&s.onresult({resultIndex:0,results:[a]}); },200); };
+          R.prototype.stop=function(){ var s=this; setTimeout(function(){ s.onend&&s.onend(); },20); }; R.prototype.abort=R.prototype.stop;
+          window.SpeechRecognition=undefined; window.webkitSpeechRecognition=R;
+          var ss=window.speechSynthesis; ss.speak=function(u){ window.__spoken.push(u.text); setTimeout(function(){ u.onend&&u.onend(); },30); }; ss.cancel=function(){}; })();''')
+        page9 = ctx9.new_page()
+        page9.on('console', lambda m: errors.append('console9: ' + m.text) if m.type == 'error' else None)
+        page9.on('pageerror', lambda e: errors.append('pageerror9: ' + str(e)))
+        page9.goto(BASE, wait_until='load')
+        results['v7_wake_default_off'] = not page9.is_checked('#wakeToggle')
+        results['v7_engine_tab'] = page9.evaluate('JarvisTalk.engine()')
+        states = []
+        page9.expose_function('__st', lambda s: states.append(s))
+        page9.evaluate("JarvisTalk.machine.on(function(s){ window.__st(s); })")
+        page9.dispatch_event('#holdBtn', 'pointerdown', {'button': 0, 'pointerId': 1})
+        page9.wait_for_timeout(900)
+        page9.dispatch_event('#holdBtn', 'pointerup', {'button': 0, 'pointerId': 1})
+        page9.wait_for_function("(window.jarvisAnswerCount||0) >= 1 && window.jarvisTalkState === 'idle'", timeout=25000)
+        results['v7_safari_answer'] = page9.evaluate('window.jarvisLastAnswer')
+        results['v7_safari_spoken'] = page9.evaluate("window.__spoken.indexOf('50.') !== -1")
+        results['v7_safari_heard'] = page9.inner_text('#heardLine')
+        results['v7_states'] = list(states)
+        # Safari speech refuses (as in a Home Screen app) -> switches to on-device for next time.
+        page9.evaluate("window.__mode='fail'")
+        page9.dispatch_event('#holdBtn', 'pointerdown', {'button': 0, 'pointerId': 1})
+        page9.wait_for_timeout(700)
+        page9.dispatch_event('#holdBtn', 'pointerup', {'button': 0, 'pointerId': 1})
+        page9.wait_for_function("window.jarvisTalkState === 'idle'", timeout=8000)
+        page9.wait_for_timeout(200)
+        results['v7_fallback_engine'] = page9.evaluate('JarvisTalk.engine()')
+        results['v7_fallback_msg'] = page9.inner_text('#talkState')
+        # Home Screen app: on-device engine, hands-free wake disabled with an explanation.
+        ctx10 = browser.new_context(viewport={'width': 390, 'height': 844})
+        ctx10.add_init_script("Object.defineProperty(navigator, 'standalone', {value: true}); window.webkitSpeechRecognition = function(){};")
+        page10 = ctx10.new_page()
+        page10.on('pageerror', lambda e: errors.append('pageerror10: ' + str(e)))
+        page10.goto(BASE, wait_until='load')
+        results['v7_standalone_engine'] = page10.evaluate('JarvisTalk.engine()')
+        results['v7_standalone_wake_disabled'] = page10.is_disabled('#wakeToggle')
+        results['v7_standalone_note'] = page10.text_content('#wakeNote')
         browser.close()
+        # Phase 11 (v7): on-device Whisper with a spoken WAV as the fake microphone.
+        QWAV = os.path.join(ROOT, 'test', 'question.wav')
+        b2 = p.chromium.launch(args=['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream',
+                                     '--use-file-for-fake-audio-capture=' + QWAV, '--autoplay-policy=no-user-gesture-required'])
+        ctx11 = b2.new_context(viewport={'width': 390, 'height': 844}, permissions=['microphone'])
+        ctx11.add_init_script("window.__spoken=[]; var ss=window.speechSynthesis; ss.speak=function(u){ window.__spoken.push(u.text); setTimeout(function(){ u.onend&&u.onend(); },30); }; ss.cancel=function(){}; localStorage.setItem('jarvis.engine.v1','local');")
+        page11 = ctx11.new_page()
+        page11.on('console', lambda m: errors.append('console11: ' + m.text) if m.type == 'error' else None)
+        page11.on('pageerror', lambda e: errors.append('pageerror11: ' + str(e)))
+        page11.goto(BASE, wait_until='load')
+        page11.dispatch_event('#holdBtn', 'pointerdown', {'button': 0, 'pointerId': 1})
+        page11.wait_for_timeout(4500)
+        results['v7_local_mic_open_while_held'] = page11.evaluate('window.jarvisMicOpen === true')
+        page11.dispatch_event('#holdBtn', 'pointerup', {'button': 0, 'pointerId': 1})
+        page11.wait_for_function("(window.jarvisAnswerCount||0) >= 1 || (window.jarvisTalkState === 'idle' && !!window.jarvisTalkError)", timeout=180000)
+        results['v7_local_heard'] = page11.evaluate('window.jarvisHeard')
+        results['v7_local_answer'] = page11.evaluate('window.jarvisLastAnswer')
+        results['v7_local_spoken'] = page11.evaluate("window.__spoken.indexOf('50.') !== -1")
+        results['v7_local_mic_released'] = page11.evaluate("!!window.jarvisLastStream && window.jarvisLastStream.getTracks().every(function(t){ return t.readyState === 'ended'; })")
+        results['v7_local_error'] = page11.evaluate('window.jarvisTalkError || ""')
+        b2.close()
+        results['console_errors'] = errors
 finally:
     srv.terminate()
 
 print(json.dumps(results, indent=2))
 ok = (results.get('service_worker_active') and results.get('manifest_name') == 'Jarvis'
       and results.get('trigger') == 'double clap' and 'Welcome home' in results.get('greeting', '')
-      and results.get('wake_toggle_default') and str(results.get('wake_trigger','')).startswith('voice')
+      and results.get('wake_toggle_on_when_chosen') and str(results.get('wake_trigger','')).startswith('voice')
       and 'Yes, sir?' in results.get('wake_greeting', '') and results.get('wake_buttons', 0) > 0
       and 'not available' in results.get('unsupported_note', '')
       and results.get('talk_math') == '50.' and results.get('talk_math_spoken')
@@ -247,6 +318,13 @@ ok = (results.get('service_worker_active') and results.get('manifest_name') == '
       and results.get('ptt_restarted') and results.get('ptt_answer') == '7.' and results.get('ptt_spoken')
       and results.get('split_wake_silent') and results.get('split_tap_to_ask_shown')
       and results.get('split_answer') == '50.' and results.get('split_spoken') and results.get('interim_answer') == '7.'
+      and results.get('v7_wake_default_off') and results.get('v7_engine_tab') == 'safari'
+      and results.get('v7_safari_answer') == '50.' and results.get('v7_safari_spoken') and 'what is 25% of 200' in results.get('v7_safari_heard', '')
+      and results.get('v7_states') == ['listening', 'thinking', 'speaking', 'idle']
+      and results.get('v7_fallback_engine') == 'local' and 'on-device' in results.get('v7_fallback_msg', '')
+      and results.get('v7_standalone_engine') == 'local' and results.get('v7_standalone_wake_disabled')
+      and results.get('v7_local_mic_open_while_held') and results.get('v7_local_answer') == '50.' and results.get('v7_local_spoken')
+      and results.get('v7_local_mic_released')
       and not results.get('console_errors'))
 print('BROWSER CHECK:', 'PASS' if ok else 'FAIL')
 sys.exit(0 if ok else 1)

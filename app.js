@@ -4,7 +4,8 @@
   var $ = function (id) { return document.getElementById(id); };
   var TEST = /[?&]test=1\b/.test(location.search);
   var STORE = 'jarvis.settings.v1';
-  var WAKE_DEFAULT_KEY = 'jarvis.wakeDefault.v2';
+  var WAKE_DEFAULT_KEY = 'jarvis.wakeDefault.v3';
+  var STANDALONE = !!(navigator.standalone || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches));
 
   var DEFAULT_LAUNCHERS = [
     { name: 'Spotify', url: 'spotify://' },
@@ -19,7 +20,7 @@
     rate: 0.95,
     pitch: 0.9,
     shortcutName: 'Jarvis',
-    wake: true,
+    wake: false,
     clap: false,
     launchers: DEFAULT_LAUNCHERS
   };
@@ -34,7 +35,7 @@
     return out;
   }
   var settings = load();
-  try { if (!localStorage.getItem(WAKE_DEFAULT_KEY)) { settings.wake = true; localStorage.setItem(WAKE_DEFAULT_KEY, '1'); } } catch (e) { /* ignore */ }
+  try { if (!localStorage.getItem(WAKE_DEFAULT_KEY)) { settings.wake = false; localStorage.setItem(WAKE_DEFAULT_KEY, '1'); } } catch (e) { /* ignore */ }
   function save() { try { localStorage.setItem(STORE, JSON.stringify(settings)); } catch (e) { /* private mode */ } }
 
   function setStatus(t) { $('status').textContent = t; }
@@ -247,7 +248,7 @@
     bubble('jarvis', answer);
     window.jarvisLastAnswer = answer; window.jarvisAnswerCount = (window.jarvisAnswerCount || 0) + 1;
     document.dispatchEvent(new CustomEvent('jarvis:answer', { detail: { text: answer } }));
-    var after = function () { if (skipTeach) session.afterAnswer('', Date.now()); else session.afterAnswer(answer, Date.now()); listenHint(); };
+    var after = function () { document.dispatchEvent(new CustomEvent('jarvis:spoken')); if (skipTeach) session.afterAnswer('', Date.now()); else session.afterAnswer(answer, Date.now()); listenHint(); };
     setStatus('Jarvis answered · ' + new Date().toLocaleTimeString());
     if (!speak(JarvisBrain.speakable(answer), after)) after();
   }
@@ -277,7 +278,8 @@
     hideTapListen();
     if (settings.clap) { stopWake(true); setStatus('Clap mode · asking for the microphone…'); return startMic(); }
     setStatus(Rec ? 'Listening · say “Jarvis” (or type below)' : 'Voice not supported in this browser · type below');
-    if (settings.wake) startWake(); else wakeMsg('Voice wake off. Type below, or turn on clap mode.');
+    if (!Rec) wakeMsg('Speech recognition is not available in this browser. Hold to talk uses the on-device engine, or type below.');
+    else if (settings.wake && !STANDALONE) startWake(); else if (!STANDALONE) wakeMsg('Hands-free wake is off. Hold the 🎙 button to talk, or type below.');
     return Promise.resolve();
   }
   function loadNova() {
@@ -492,13 +494,11 @@
     if (session.mode(Date.now())) heardLine(t, 'typed'); else heardLine('jarvis ' + t, 'typed');
   }
   var muteUntil = 0;
-  function pauseWake(why) {
-    if (why === 'speaking' && rec) { muteUntil = Infinity; ignoreUpTo(); return; } // keep iOS session alive, just ignore our own voice
-    pauses[why] = true; if (rec) stopRec();
-  }
+  // Abort before Jarvis speaks and start a NEW recognizer after: on iOS a recognizer kept alive
+  // across speechSynthesis stops delivering results (WebKit bug 321436).
+  function pauseWake(why) { pauses[why] = true; if (rec) stopRec(); }
   function ignoreUpTo() { if (rec && rec.__len != null) doneIndex = rec.__len; pendingLine = null; clearTimeout(finalTimer); }
   function resumeWake(why) {
-    if (why === 'speaking' && muteUntil === Infinity) { muteUntil = Date.now() + 400; ignoreUpTo(); if (!rec && wakeWanted && session.mode(Date.now())) showTapListen('ask'); return; }
     if (!pauses[why]) return; pauses[why] = false; restartTry = 0; if (wakeWanted && !paused()) { clearTimeout(restartTimer); restartTimer = setTimeout(startRec, 150); } }
 
   // ---------- wire up ----------
@@ -543,7 +543,10 @@
     $('resetLaunchers').addEventListener('click', function () { settings.launchers = DEFAULT_LAUNCHERS.map(function (l) { return { name: l.name, url: l.url }; }); save(); renderLaunchers(); });
 
     var wt = $('wakeToggle');
-    if (!Rec) {
+    if (Rec && STANDALONE) {
+      wt.disabled = true; wt.checked = false; settings.wake = false;
+      wakeMsg('Hands-free “Jarvis” is not available in the Home Screen app on iPhone (Apple limitation). Use Hold to talk, or open the link in Safari to try it.');
+    } else if (!Rec) {
       wt.disabled = true; wt.checked = false;
       wakeMsg('Speech recognition is not available in this browser, so voice wake can’t work here. Type below, or turn on clap mode.');
     } else {
@@ -572,6 +575,16 @@
     renderLaunchers();
   }
 
+  var talkPaused = { clap: false };
+  window.JarvisApp = {
+    unlockSpeech: unlockSpeech,
+    loadNova: loadNova,
+    stopSpeaking: function () { try { if (hasTTS()) window.speechSynthesis.cancel(); } catch (e) { /* ignore */ } },
+    // Hold to talk owns the mic: stop voice wake and the clap mic while it runs.
+    pauseOthers: function () { pauseWake('talk'); if (audio) { closeMic(); talkPaused.clap = true; } },
+    resumeOthers: function () { resumeWake('talk'); if (talkPaused.clap && running && settings.clap) { talkPaused.clap = false; startMic(); } },
+    sendLine: function (t) { if (session.mode(Date.now()) || JarvisWake.matchWake(t)) heardLine(t, 'talk'); else heardLine('jarvis ' + t, 'talk'); }
+  };
   bind();
 
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {

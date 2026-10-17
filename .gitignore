@@ -3,3 +3,5 @@ demo.mp4
 __pycache__/
 node_modules/
 .DS_Store
+demo_v7.mp4
+rec.pid
