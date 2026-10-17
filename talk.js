@@ -66,7 +66,7 @@
   var worker = null, workerReady = false, progress = {}, pending = {}, nextId = 1;
   function ensureWorker() {
     if (worker) return worker;
-    worker = new Worker('stt-worker.js?v=7', { type: 'module' });
+    worker = new Worker('stt-worker.js?v=7.1', { type: 'module' });
     dbg.model = 'loading…'; showProgress(0, true);
     worker.onmessage = function (e) {
       var m = e.data || {};
@@ -75,7 +75,8 @@
         if (p.file && p.total) progress[p.file] = { loaded: p.loaded || 0, total: p.total };
         if (p.status === 'done' && p.file && progress[p.file]) progress[p.file].loaded = progress[p.file].total;
         var L = 0, T = 0; for (var k in progress) { L += progress[k].loaded; T += progress[k].total; }
-        if (T) showProgress(L / T, true, T);
+        T = Math.max(T, 68e6); // model + runtime is about 68 MB in total; files report sizes one by one
+        showProgress(Math.min(1, L / T), true, L, T);
       } else if (m.type === 'ready') {
         workerReady = true; lsSet('jarvis.modelSeen.v1', '1'); dbg.model = 'ready (on this phone)'; showProgress(1, false); renderDebug();
       } else if (m.type === 'text' || m.type === 'error') {
@@ -89,11 +90,11 @@
     worker.postMessage({ type: 'load' });
     return worker;
   }
-  function showProgress(f, on, total) {
+  function showProgress(f, on, loaded, total) {
     var box = $('modelProgress'); if (!box) return;
     box.hidden = !on;
-    var mb = total ? ' of ' + Math.round(total / 1048576) + ' MB' : '';
-    box.textContent = on ? 'Downloading the on-device voice model (one time only): ' + Math.round(f * 100) + '%' + mb : '';
+    var mb = total ? ' (' + Math.round(loaded / 1048576) + ' of about ' + Math.round(total / 1048576) + ' MB)' : '';
+    box.textContent = on ? 'Downloading the on-device voice model, one time only: ' + Math.round(f * 100) + '%' + mb : '';
     root.jarvisModelProgress = f;
   }
   function transcribe(pcm16k) {

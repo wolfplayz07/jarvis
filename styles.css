@@ -144,3 +144,4 @@ body[data-talk=speaking] .talk-state{color:#7dffb0}
 .dbg{white-space:pre-wrap;font-size:12px;background:#04111b;padding:8px;border-radius:8px;margin:6px 0}
 #app{padding-bottom:230px}
 .hud{padding-bottom:220px}
+.talk-btn[hidden]{display:none}

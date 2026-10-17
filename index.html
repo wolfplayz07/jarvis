@@ -13,7 +13,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/favicon-32.png">
-  <link rel="stylesheet" href="styles.css?v=7">
+  <link rel="stylesheet" href="styles.css?v=7.1">
 </head>
 <body>
   <div class="scan" aria-hidden="true"></div>
@@ -39,7 +39,7 @@
         <button id="stopBtn" class="ghost small-btn" type="button">Stop</button>
       </div>
       <p id="wakeStatus" class="wake-status" role="status"></p>
-      <button id="talkBtn" class="talk-btn" type="button">🎙 Tap to talk</button>
+      <button id="talkBtn" class="talk-btn" type="button" hidden>🎙 Tap to talk</button>
       <p id="wakeHeard" class="wake-heard" aria-live="off"></p>
       <button id="tapListenBtn" class="start-btn tap-listen" type="button" hidden>🎙 Tap to listen</button>
       <label class="toggle"><input id="clapToggle" type="checkbox"> Clap mode (uses the microphone; turns voice wake off while on)</label>
@@ -159,7 +159,7 @@
     <div id="chat" class="chat" aria-live="polite"></div>
     <p id="liveHeard" class="live-heard" aria-live="off"></p>
     <button id="hudTapBtn" class="start-btn tap-listen" type="button" hidden>🎙 Tap to ask</button>
-    <button id="hudTalkBtn" class="talk-btn" type="button">🎙 Tap to talk</button>
+    <button id="hudTalkBtn" class="talk-btn" type="button" hidden>🎙 Tap to talk</button>
     <p id="chatHint" class="chat-hint">Say “Jarvis” to talk</p>
     <div id="hudLaunchers" class="launchers hud-launch"></div>
     <button id="hudClose" class="ghost" type="button">Dismiss</button>
@@ -183,12 +183,12 @@
     </form>
     </section>
 
-  <script src="clap.js?v=7"></script>
-  <script src="wake.js?v=7"></script>
-  <script src="brain.js?v=7"></script>
-  <script src="nova-bridge.js?v=7"></script>
-  <script src="ptt.js?v=7"></script>
-  <script src="app.js?v=7"></script>
-  <script src="talk.js?v=7"></script>
+  <script src="clap.js?v=7.1"></script>
+  <script src="wake.js?v=7.1"></script>
+  <script src="brain.js?v=7.1"></script>
+  <script src="nova-bridge.js?v=7.1"></script>
+  <script src="ptt.js?v=7.1"></script>
+  <script src="app.js?v=7.1"></script>
+  <script src="talk.js?v=7.1"></script>
 </body>
 </html>

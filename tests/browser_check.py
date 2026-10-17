@@ -197,7 +197,7 @@ try:
         results['alt_wake_answer'] = page7.evaluate('window.jarvisLastAnswer')
         results['live_heard'] = page7.inner_text('#liveHeard')
         page7.wait_for_timeout(9500)
-        page7.click('#hudTalkBtn')
+        page7.evaluate("document.getElementById('hudTalkBtn').click()")  # legacy button, hidden since v7 (Hold to talk replaces it)
         results['ptt_restarted'] = page7.evaluate('window.__starts') >= 2
         page7.wait_for_function('window.__r && window.__r.live', timeout=5000); page7.wait_for_timeout(100)
         page7.evaluate("window.__sayAlts(['what is 3 + 4'])")
