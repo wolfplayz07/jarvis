@@ -92,30 +92,98 @@
     });
     sel.value = settings.voiceURI || '';
   }
-  function speak(text, onDone) {
-    if (!hasTTS()) return false;
+  // ---------- speech out (iOS-safe) ----------
+  // iOS rules this code works around:
+  //  1. speechSynthesis must be used once inside a real tap (click / touchend / pointerup), or later
+  //     speak() calls from async callbacks are silently dropped. primeSpeech() runs on every tap.
+  //  2. After the mic was open, iOS keeps the audio session in record mode and routes speech to the
+  //     earpiece (very quiet) or mutes it. setPlayback() switches the session back (iOS 17+).
+  //  3. speak() right after cancel() is often dropped; Safari can also get stuck "paused".
+  //  4. Utterances can be garbage-collected before they play, so keep a reference.
+  // If speech still does not start, Jarvis says so ON SCREEN and offers a tap-to-hear button.
+  var primed = false, curUtter = null, lastSpeechText = '';
+  function speechMsg(t) {
+    var el = $('speechMsg'); if (el) { el.textContent = t || ''; el.hidden = !t; }
+    var rb = $('replayBtn'); if (rb) rb.hidden = !t;
+    window.jarvisSpeechMsg = t || '';
+  }
+  function setPlayback() {
+    try { if (navigator.audioSession && navigator.audioSession.type !== 'playback') navigator.audioSession.type = 'playback'; } catch (e) { /* older iOS */ }
+  }
+  function primeSpeech() {
+    // Call ONLY from a tap handler. Speaks a silent real utterance so iOS unlocks speech for this page.
+    if (!hasTTS()) return;
     try {
       var ss = window.speechSynthesis;
-      ss.cancel();
-      var u = new SpeechSynthesisUtterance(text);
-      var v = bestVoice();
-      if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = 'en-GB'; }
-      u.rate = Number(settings.rate) || 1;
-      u.pitch = Number(settings.pitch) || 1;
-      pauseWake('speaking');
-      var fired = false;
-      var done = function () { if (fired) return; fired = true; if (onDone) { try { onDone(); } catch (e) { /* ignore */ } } setTimeout(function () { resumeWake('speaking'); }, 500); };
-      u.onend = done; u.onerror = done;
-      setTimeout(done, Math.min(30000, 4000 + String(text).length * 90)); // safety if onend never fires
-      ss.speak(u);
-      window.jarvisLastSpoken = text;
-      return true;
-    } catch (e) { if (onDone) onDone(); return false; }
+      if (ss.paused) ss.resume();
+      if (primed || ss.speaking || ss.pending) return;
+      setPlayback();
+      var u = new SpeechSynthesisUtterance('.'); u.volume = 0; u.rate = 2;
+      u.onstart = function () { primed = true; window.jarvisSpeechPrimed = true; };
+      curUtter = u; ss.speak(u);
+    } catch (e) { window.jarvisSpeechError = 'prime: ' + (e && e.message); }
   }
-  function unlockSpeech() {
-    // iOS only lets speech start after a tap; a silent utterance inside the tap unlocks it.
-    if (!hasTTS()) return;
-    try { var u = new SpeechSynthesisUtterance(' '); u.volume = 0; window.speechSynthesis.speak(u); } catch (e) { /* ignore */ }
+  function speak(text, onDone, opts) {
+    opts = opts || {};
+    if (!hasTTS()) { speechMsg('This browser cannot speak. The reply is shown above.'); if (onDone) onDone(); return false; }
+    var ss = window.speechSynthesis, fired = false, started = false, watchdog = null, safety = null;
+    lastSpeechText = text;
+    var done = function (err) {
+      if (fired) return; fired = true; clearTimeout(watchdog); clearTimeout(safety);
+      if (err) {
+        speechMsg('🔇 Jarvis could not speak (' + err + '). Check the volume and the silent switch, then tap 🔊 to hear it.');
+        window.jarvisSpeechError = err;
+      }
+      if (onDone) { try { onDone(); } catch (e) { /* keep going */ } }
+      setTimeout(function () { resumeWake('speaking'); }, 500);
+    };
+    var go = function () {
+      try {
+        setPlayback();
+        if (ss.paused) ss.resume();
+        var u = new SpeechSynthesisUtterance(text);
+        var v = bestVoice();
+        if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = 'en-GB'; }
+        u.rate = Number(settings.rate) || 1;
+        u.pitch = Number(settings.pitch) || 1;
+        u.volume = 1;
+        u.onstart = function () { started = true; primed = true; speechMsg(''); window.jarvisSpeechStarted = (window.jarvisSpeechStarted || 0) + 1; };
+        u.onend = function () { done(started ? null : 'no sound started'); };
+        u.onerror = function (e) {
+          var er = (e && e.error) || 'error';
+          done(er === 'interrupted' || er === 'canceled' ? null : er);
+        };
+        curUtter = u; window.jarvisCurUtter = u; // keep alive (GC bug)
+        ss.speak(u);
+        window.jarvisLastSpoken = text;
+        // iOS drops blocked speech without any event: if it has not started in 2.5 s, say so on screen.
+        watchdog = setTimeout(function () {
+          if (started || fired) return;
+          try { if (ss.paused) ss.resume(); } catch (e) { /* ignore */ }
+          setTimeout(function () { if (!started && !fired) { try { ss.cancel(); } catch (e) { /* ignore */ } done('blocked by iPhone'); } }, 700);
+        }, 2500);
+        safety = setTimeout(function () { done(null); }, Math.min(45000, 6000 + String(text).length * 110));
+      } catch (e) { done('error: ' + (e && e.message)); }
+    };
+    pauseWake('speaking');
+    var busy = false;
+    try { busy = ss.speaking || ss.pending; } catch (e) { busy = false; }
+    if (busy) { try { ss.cancel(); } catch (e) { /* ignore */ } if (opts.sync) go(); else setTimeout(go, 120); } // sync keeps the tap gesture
+    else {
+      // Voices load late on iOS. If the list is still empty, refresh it once; with no voice object,
+      // lang en-GB still makes iOS use its British voice, so speak now rather than wait.
+      if (!voices.length) refreshVoices();
+      go();
+    }
+    return true;
+  }
+  function unlockSpeech() { primeSpeech(); }
+  function testVoice() {
+    // Runs inside a tap, so it is allowed even if speech was blocked before.
+    speechMsg('');
+    var t = lastSpeechText && window.jarvisReplayLast ? lastSpeechText : 'Voice check. Can you hear me, sir?';
+    window.jarvisReplayLast = false;
+    if (!speak(t, null, { noWait: true, sync: true })) setStatus('Speech is not available on this browser.');
   }
 
   // ---------- launchers ----------
@@ -169,7 +237,7 @@
     var byVoice = /^voice/.test(String(source));
     var text = greetingText();
     var hud = $('hud');
-    hud.hidden = false;
+    hud.hidden = false; hudOpen(true);
     hud.style.animation = 'none'; void hud.offsetWidth; hud.style.animation = '';
     $('greetText').textContent = text;
     $('hudClock').textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -181,20 +249,23 @@
       // phrase is the question. (iOS will not restart recognition after speech without a tap.)
       $('greetText').textContent = 'Yes, sir?';
       session.afterGreet(Date.now()); listenHint();
+      document.dispatchEvent(new CustomEvent('jarvis:spoken'));
       if (!rec) showTapListen('ask');
-    } else speak(text, function () { session.afterGreet(Date.now()); listenHint(); });
+    } else speak(text, function () { session.afterGreet(Date.now()); listenHint(); document.dispatchEvent(new CustomEvent('jarvis:spoken')); });
     if (navigator.vibrate) { try { navigator.vibrate([40, 60, 40]); } catch (e) { /* ignore */ } }
     setStatus('Greeting (' + source + ') · ' + new Date().toLocaleTimeString());
     document.dispatchEvent(new CustomEvent('jarvis:trigger', { detail: { source: source, text: text } }));
     window.jarvisLastTrigger = { source: source, text: text, at: Date.now() };
   }
-  function closeHud() { $('hud').hidden = true; session.close(); listenHint(); }
+  function closeHud() { $('hud').hidden = true; hudOpen(false); session.close(); listenHint(); }
+  // While the HUD is open the main page is hidden, so no old text shows through behind the reply.
+  function hudOpen(on) { document.body.classList.toggle('hud-open', !!on); }
 
   // ---------- Nova brain (talk) ----------
   var session = JarvisBrain.createSession();
   function showHud() {
     var hud = $('hud');
-    if (hud.hidden) { hud.hidden = false; hud.style.animation = 'none'; void hud.offsetWidth; hud.style.animation = ''; }
+    if (hud.hidden) { hud.hidden = false; hudOpen(true); hud.style.animation = 'none'; void hud.offsetWidth; hud.style.animation = ''; }
     $('hudClock').textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     $('hudLaunchers').classList.add('show');
   }
@@ -206,7 +277,9 @@
     var sp = document.createElement('span'); sp.textContent = text;
     d.appendChild(b); d.appendChild(sp); box.appendChild(d);
     while (box.children.length > 12) box.removeChild(box.firstChild);
+    $('hud').classList.add('talking');
     box.scrollTop = box.scrollHeight;
+    try { d.scrollIntoView({ block: 'nearest' }); } catch (e) { /* old browsers */ }
   }
   function listenHint() {
     var m = session.mode(Date.now()), el = $('chatHint'); if (!el) return;
@@ -225,7 +298,7 @@
     }
     return null;
   }
-  var asking = false;
+  var asking = false, askToken = 0;
   function ask(text, via) {
     showHud();
     $('greetText').textContent = '';
@@ -234,12 +307,21 @@
     var appName = target ? launchByVoice(target) : null;
     if (appName) return say('Tap to open ' + appName + ', sir.', true);
     asking = true;
+    var token = ++askToken;
     setStatus('Asking Nova…');
+    // Never leave Jarvis stuck "asking": after 25 s give up, say so on screen, and reload Nova.
+    var guard = setTimeout(function () {
+      if (token !== askToken || !asking) return;
+      asking = false; NovaBridge.reset();
+      say('Nova took too long to answer. I am reloading my brain, sir. Please ask again.', true);
+    }, 25000);
     NovaBridge.ask(text).then(function (answer) {
+      clearTimeout(guard); if (token !== askToken || !asking) return;
       asking = false;
       answer = answer || 'i do not know.';
       say(answer, false);
     }).catch(function () {
+      clearTimeout(guard); if (token !== askToken || !asking) return;
       asking = false;
       say('My brain, Nova, did not load. Check the connection and try again.', true);
     });
@@ -534,7 +616,11 @@
       var el = $(p[0]); el.value = settings[p[0]]; $(p[1]).textContent = Number(settings[p[0]]).toFixed(2);
       el.addEventListener('input', function () { settings[p[0]] = Number(el.value); $(p[1]).textContent = Number(el.value).toFixed(2); save(); });
     });
-    $('testVoiceBtn').addEventListener('click', function () { if (!speak(greetingText())) setStatus('Speech is not available on this browser.'); });
+    $('testVoiceBtn').addEventListener('click', testVoice);
+    $('voiceTestBtn').addEventListener('click', testVoice);
+    $('replayBtn').addEventListener('click', function () { window.jarvisReplayLast = true; testVoice(); });
+    // Every real tap anywhere primes speech (touchend/click are the taps iOS accepts).
+    ['touchend', 'click'].forEach(function (ev) { document.addEventListener(ev, primeSpeech, true); });
 
     var sn = $('shortcutName'); sn.value = settings.shortcutName;
     sn.addEventListener('change', function () { settings.shortcutName = sn.value.trim() || 'Jarvis'; sn.value = settings.shortcutName; save(); renderShortcut(); renderLaunchers(); });
@@ -566,20 +652,63 @@
       setTimeout(refreshVoices, 700);
     } else refreshVoices();
 
-    document.addEventListener('visibilitychange', function () {
-      if (document.hidden) { pauseWake('hidden'); if (running) setStatus('Paused while in the background'); }
-      else { if (audio) { audio.ctx.resume().catch(function () {}); setStatus('Clap mode · clap twice (or type below)'); } else if (running) setStatus('Listening · say “Jarvis” (or type below)'); resumeWake('hidden'); }
-    });
+    document.addEventListener('visibilitychange', function () { if (document.hidden) onHide('hidden'); else onResume('visible'); });
+    window.addEventListener('pagehide', function () { onHide('pagehide'); });
+    // Back/forward cache: the page is restored frozen, without a reload.
+    window.addEventListener('pageshow', function (e) { if (e.persisted) onResume('pageshow'); });
+    window.addEventListener('focus', function () { if (wasHidden) onResume('focus'); });
 
     renderShortcut();
     renderLaunchers();
   }
 
+  // ---------- leaving / coming back ----------
+  // iOS freezes or kills the mic, recognizer, AudioContext and speech while Safari is in the background
+  // and does not tell the page. On return, rebuild them all instead of waiting for a refresh.
+  var wasHidden = false, resumeTimer = null;
+  function onHide(why) {
+    wasHidden = true;
+    pauseWake('hidden');
+    stopRec();
+    if (audio) { closeMic(); talkPaused.clapHidden = true; }
+    try { if (hasTTS()) window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
+    if (window.JarvisTalk && window.JarvisTalk.abort) window.JarvisTalk.abort('hidden');
+    if (running) setStatus('Paused while in the background');
+    window.jarvisLastHide = why;
+  }
+  function onResume(why) {
+    if (!wasHidden) return;
+    clearTimeout(resumeTimer);
+    resumeTimer = setTimeout(function () {
+      wasHidden = false;
+      window.jarvisResumes = (window.jarvisResumes || 0) + 1; window.jarvisLastResume = why;
+      // Speech: iOS can come back stuck "paused" and needs a new tap to unlock.
+      primed = false;
+      try { if (hasTTS()) { var ss = window.speechSynthesis; ss.cancel(); if (ss.paused) ss.resume(); refreshVoices(); } } catch (e) { /* ignore */ }
+      speechMsg('');
+      setPlayback();
+      if (window.JarvisTalk && window.JarvisTalk.reset) window.JarvisTalk.reset('resume');
+      asking = false; askToken++;
+      NovaBridge.check().then(function (ok) { window.jarvisNovaAlive = ok; });
+      pauses.hidden = false;
+      if (running && settings.clap && talkPaused.clapHidden) { talkPaused.clapHidden = false; startMic(); }
+      else if (running && wakeWanted && !STANDALONE) {
+        // iOS usually refuses to restart recognition without a tap: try, and offer the button.
+        restartTry = 0; wakeFatal = false; startRec();
+        setTimeout(function () { if (!rec) showTapListen(); }, 1500);
+      }
+      setStatus(running ? 'Back · hold 🎙 to talk' : 'Ready · hold 🎙 to talk');
+    }, 250);
+  }
+
   var talkPaused = { clap: false };
   window.JarvisApp = {
     unlockSpeech: unlockSpeech,
+    primeSpeech: primeSpeech,
+    setPlayback: setPlayback,
+    speechMsg: speechMsg,
     loadNova: loadNova,
-    stopSpeaking: function () { try { if (hasTTS()) window.speechSynthesis.cancel(); } catch (e) { /* ignore */ } },
+    stopSpeaking: function () { try { if (hasTTS() && (window.speechSynthesis.speaking || window.speechSynthesis.pending)) window.speechSynthesis.cancel(); } catch (e) { /* ignore */ } },
     // Hold to talk owns the mic: stop voice wake and the clap mic while it runs.
     pauseOthers: function () { pauseWake('talk'); if (audio) { closeMic(); talkPaused.clap = true; } },
     resumeOthers: function () { resumeWake('talk'); if (talkPaused.clap && running && settings.clap) { talkPaused.clap = false; startMic(); } },

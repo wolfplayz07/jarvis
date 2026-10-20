@@ -145,3 +145,21 @@ body[data-talk=speaking] .talk-state{color:#7dffb0}
 #app{padding-bottom:230px}
 .hud{padding-bottom:220px}
 .talk-btn[hidden]{display:none}
+.speech-row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px}
+.speech-msg{margin-top:4px;padding:6px 8px;border:1px solid #ffb347;border-radius:8px;color:#ffd79a;font-size:13px;background:rgba(90,58,8,.35)}
+.speech-msg[hidden]{display:none}
+/* v7.2 layout: the HUD is a solid screen of its own. The main page is hidden behind it (no text
+   bleeding through), it scrolls instead of pushing the reply off the top, and once a conversation
+   starts the rings shrink so the reply card has room. */
+.hud{background:#02080e;justify-content:flex-start;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-top:calc(12px + env(safe-area-inset-top))}
+.hud > *{flex-shrink:0}
+.hud-bg{position:fixed}
+body.hud-open #app,body.hud-open .scan{visibility:hidden}
+.hud-rings{width:min(40vw,170px);height:min(40vw,170px)}
+.hud.talking .hud-rings{width:72px;height:72px;margin-top:4px}
+.hud.talking .hud-tag{font-size:10px}
+.hud.talking .greet:empty{display:none}
+.hud.talking .chat{max-height:none;margin-top:10px}
+.hud.talking .hud-launch{margin-top:8px}
+.talk-dock{background:#030c14}
+.hud{padding-bottom:calc(300px + env(safe-area-inset-bottom))}
