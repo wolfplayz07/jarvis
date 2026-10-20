@@ -13,7 +13,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/favicon-32.png">
-  <link rel="stylesheet" href="styles.css?v=7.1">
+  <link rel="stylesheet" href="styles.css?v=7.2">
 </head>
 <body>
   <div class="scan" aria-hidden="true"></div>
@@ -171,10 +171,12 @@
           <span class="hold-icon" aria-hidden="true">🎙</span><span class="hold-label">HOLD<br>to talk</span>
         </button>
         <div class="talk-info">
+          <div class="speech-row"><button id="voiceTestBtn" class="ghost small-btn" type="button" aria-label="Test Jarvis voice">🔊 Test voice</button><button id="replayBtn" class="small-btn" type="button" hidden>🔊 Tap to hear reply</button></div>
           <div id="talkState" class="talk-state" role="status">Idle · hold to talk</div>
           <div id="heardLine" class="heard-line" aria-live="polite"></div>
           <canvas id="pttMeter" class="ptt-meter" width="300" height="8" aria-label="Microphone level"></canvas>
           <div id="modelProgress" class="model-progress" hidden></div>
+          <div id="speechMsg" class="speech-msg" role="alert" hidden></div>
         </div>
       </div>
       <form id="askForm" class="ask-form" autocomplete="off">
@@ -183,12 +185,12 @@
     </form>
     </section>
 
-  <script src="clap.js?v=7.1"></script>
-  <script src="wake.js?v=7.1"></script>
-  <script src="brain.js?v=7.1"></script>
-  <script src="nova-bridge.js?v=7.1"></script>
-  <script src="ptt.js?v=7.1"></script>
-  <script src="app.js?v=7.1"></script>
-  <script src="talk.js?v=7.1"></script>
+  <script src="clap.js?v=7.2"></script>
+  <script src="wake.js?v=7.2"></script>
+  <script src="brain.js?v=7.2"></script>
+  <script src="nova-bridge.js?v=7.2"></script>
+  <script src="ptt.js?v=7.2"></script>
+  <script src="app.js?v=7.2"></script>
+  <script src="talk.js?v=7.2"></script>
 </body>
 </html>

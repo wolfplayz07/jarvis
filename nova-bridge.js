@@ -9,28 +9,47 @@
   var NOVA_URL = root.JARVIS_NOVA_URL || '/Nova-AI/?embed=jarvis';
   var frame = null, ready = null;
 
+  var LOAD_MS = 20000;
+  function alive(w) {
+    try { return !!(w && w.document && w.document.readyState !== 'loading' && typeof w.send === 'function' && w.NovaTrain && w.eval('typeof state') === 'object'); } catch (e) { return false; }
+  }
+  // Throw away the frame and start again (used after the app comes back from the background).
+  function reset() {
+    ready = null;
+    if (frame && frame.parentNode) { try { frame.parentNode.removeChild(frame); } catch (e) { /* ignore */ } }
+    frame = null;
+  }
   function load() {
     if (ready) return ready;
-    ready = new Promise(function (resolve, reject) {
+    var p = new Promise(function (resolve, reject) {
       frame = document.createElement('iframe');
       frame.src = NOVA_URL; frame.title = 'Nova brain'; frame.setAttribute('aria-hidden', 'true'); frame.tabIndex = -1;
       frame.style.cssText = 'position:absolute;width:1px;height:1px;left:-9999px;top:0;border:0;opacity:0;pointer-events:none';
-      var t0 = Date.now();
+      var t0 = Date.now(), f = frame, settled = false;
+      // Poll from the start (not only after the load event, which may never fire if a Nova file hangs),
+      // and always give up after LOAD_MS so the user gets a message instead of silence.
       function poll() {
+        if (settled) return;
         var w = null;
-        try { w = frame.contentWindow; } catch (e) { w = null; }
-        var ok = false;
-        try { ok = !!(w && w.document && w.document.readyState !== 'loading' && typeof w.send === 'function' && w.NovaTrain && w.eval('typeof state') === 'object'); } catch (e) { ok = false; }
-        if (ok) return resolve(w);
-        if (Date.now() - t0 > 20000) { ready = null; return reject(new Error('Nova did not load')); }
-        setTimeout(poll, 100);
+        try { w = f.contentWindow; } catch (e) { w = null; }
+        if (alive(w)) { settled = true; return resolve(w); }
+        if (Date.now() - t0 > LOAD_MS) { settled = true; if (ready === p) ready = null; return reject(new Error('Nova did not load')); }
+        setTimeout(poll, 150);
       }
-      frame.addEventListener('load', poll);
-      document.body.appendChild(frame);
+      document.body.appendChild(f);
+      setTimeout(poll, 150);
     });
-    return ready;
+    ready = p;
+    return p;
   }
-
+  // Is the loaded Nova frame still usable? Reloads it when not. Resolves true/false within ~ms.
+  function check() {
+    if (!ready || !frame) return Promise.resolve(false);
+    var w = null; try { w = frame.contentWindow; } catch (e) { w = null; }
+    if (alive(w) && document.body.contains(frame)) return Promise.resolve(true);
+    reset(); load().catch(function () { /* surfaced on the next ask */ });
+    return Promise.resolve(false);
+  }
   // Runs inside Nova's window (global scope) so Nova's own state/currentChat/send/save are used.
   var ASK_SRC = '(function(line){' +
     'var prev=state.currentId, chat=null;' +
@@ -44,10 +63,13 @@
 
   function ask(text) {
     return load().then(function (w) {
+      if (!alive(w)) { reset(); return load(); }
+      return w;
+    }).then(function (w) {
       var fn = w.eval(ASK_SRC);
       return fn(String(text));
     });
   }
 
-  root.NovaBridge = { load: load, ask: ask, url: NOVA_URL };
+  root.NovaBridge = { load: load, ask: ask, check: check, reset: reset, url: NOVA_URL };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

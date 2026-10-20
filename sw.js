@@ -1,19 +1,19 @@
 /* Jarvis Phone service worker: precache the app shell so it works offline. */
-var CACHE = 'jarvis-v7';
+var CACHE = 'jarvis-v7-2';
 // The on-device voice model and runtime (~70 MB) live in their own cache, kept across app updates.
 var MODEL_CACHE = 'jmodel-whisper-tiny-en-v1';
 var SHELL = [
   './',
   './index.html',
-  './styles.css?v=7.1',
-  './clap.js?v=7.1',
-  './wake.js?v=7.1',
-  './brain.js?v=7.1',
-  './nova-bridge.js?v=7.1',
-  './app.js?v=7.1',
-  './ptt.js?v=7.1',
-  './talk.js?v=7.1',
-  './stt-worker.js?v=7.1',
+  './styles.css?v=7.2',
+  './clap.js?v=7.2',
+  './wake.js?v=7.2',
+  './brain.js?v=7.2',
+  './nova-bridge.js?v=7.2',
+  './app.js?v=7.2',
+  './ptt.js?v=7.2',
+  './talk.js?v=7.2',
+  './stt-worker.js?v=7.2',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',

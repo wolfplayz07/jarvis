@@ -66,7 +66,7 @@
   var worker = null, workerReady = false, progress = {}, pending = {}, nextId = 1;
   function ensureWorker() {
     if (worker) return worker;
-    worker = new Worker('stt-worker.js?v=7.1', { type: 'module' });
+    worker = new Worker('stt-worker.js?v=7.2', { type: 'module' });
     dbg.model = 'loading…'; showProgress(0, true);
     worker.onmessage = function (e) {
       var m = e.data || {};
@@ -108,10 +108,12 @@
   function startCapture() {
     ensureWorker();
     var AC = root.AudioContext || root.webkitAudioContext;
-    if (!actx) actx = new AC();
+    if (!actx || actx.state === 'closed') actx = new AC();
     var ctx = actx;
-    var resumed = ctx.resume ? ctx.resume() : Promise.resolve();
+    // A refused resume() is not a mic failure: once the mic is live iOS lets the context run, so retry then.
+    var resumed = (ctx.resume ? ctx.resume() : Promise.resolve()).catch(function () { return ctx.resume ? ctx.resume().catch(function () {}) : null; });
     var c = { ctx: ctx, chunks: [], rate: ctx.sampleRate, stopped: false };
+    try { if (navigator.audioSession) navigator.audioSession.type = 'play-and-record'; } catch (e) { /* older iOS */ }
     cap = c;
     return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } })
       .then(function (stream) {
@@ -139,7 +141,12 @@
     c.stopped = true;
     try { if (c.proc) { c.proc.onaudioprocess = null; c.proc.disconnect(); } if (c.src) c.src.disconnect(); if (c.mute) c.mute.disconnect(); } catch (e) { /* ignore */ }
     if (c.stream) c.stream.getTracks().forEach(function (t) { t.stop(); });
-    try { if (c.ctx && c.ctx.suspend) c.ctx.suspend(); } catch (e) { /* ignore */ }
+    // Close (not just suspend) the AudioContext and hand the iOS audio session back to playback,
+    // otherwise iOS keeps record mode and Jarvis's voice goes to the earpiece or is muted.
+    // Suspend (not close): a new AudioContext made outside a real tap is refused by WebKit, so the
+    // same one is reused. The mic tracks are stopped above, which is what ends iOS record mode.
+    try { if (c.ctx && c.ctx.suspend && c.ctx.state !== 'closed') c.ctx.suspend(); } catch (e) { /* ignore */ }
+    var a = App(); if (a && a.setPlayback) a.setPlayback();
     meter(0);
     root.jarvisMicOpen = false;
   }
@@ -184,7 +191,7 @@
       heardLine((s.text + ' ' + s.interim).trim(), false);
     };
     r.onerror = function (e) { s.error = (e && e.error) || 'error'; };
-    r.onend = function () { s.ended = true; if (s.done) s.done(); };
+    r.onend = function () { s.ended = true; var a = App(); if (a && a.setPlayback) a.setPlayback(); if (s.done) s.done(); };
     try { r.start(); } catch (e) { s.error = 'start: ' + (e && e.message); s.ended = true; }
   }
   function finishSafari() {
@@ -254,7 +261,7 @@
     var btn = $('holdBtn'); if (!btn) return;
     var down = false;
     function onDown(e) { if (e.button != null && e.button > 0) return; e.preventDefault(); down = true; try { btn.setPointerCapture && e.pointerId != null && btn.setPointerCapture(e.pointerId); } catch (x) { /* ignore */ } machine.press(Date.now()); }
-    function onUp(e) { if (!down) return; down = false; e.preventDefault(); machine.release(Date.now()); }
+    function onUp(e) { if (!down) return; down = false; e.preventDefault(); var a = App(); if (a && a.primeSpeech) a.primeSpeech(); machine.release(Date.now()); }
     if (root.PointerEvent) {
       btn.addEventListener('pointerdown', onDown); btn.addEventListener('pointerup', onUp); btn.addEventListener('pointercancel', onUp);
     } else {
@@ -271,6 +278,25 @@
     // Start the one-time model download early when on-device is the engine (Home Screen app).
     if (engine() === 'local' && lsGet('jarvis.modelSeen.v1') === '1') ensureWorker();
   }
-  root.JarvisTalk = { machine: machine, engine: engine, env: env, ensureWorker: ensureWorker, resample: resample, standalone: standalone, bind: bind };
+  // Page hidden / back from the background: drop the mic and recognizer and go back to Idle.
+  function abort(why) {
+    clearTimeout(idleTimer);
+    var c = cap; cap = null; if (c) releaseCapture(c);
+    var x = srec; srec = null; if (x) { try { x.r.onend = null; x.r.abort(); } catch (e) { /* ignore */ } }
+    current = null;
+    // iOS can leave the context "interrupted" after the background; a fresh one is made on the next hold.
+    if (actx && actx.state !== 'running' && actx.state !== 'suspended') { try { actx.close(); } catch (e) { /* ignore */ } actx = null; }
+    if (machine.state !== 'idle') machine.reset();
+    root.jarvisMicOpen = false;
+    meter(0);
+  }
+  function reset(why) {
+    abort(why);
+    // A Safari speech failure right after coming back is usually iOS, not a real lack of support:
+    // try Safari speech again instead of switching to the 70 MB on-device model for good.
+    if (!standalone) lsSet(FAIL_KEY, null);
+    heardLine(''); setError(''); checkPermission(); render();
+  }
+  root.JarvisTalk = { abort: abort, reset: reset, machine: machine, engine: engine, env: env, ensureWorker: ensureWorker, resample: resample, standalone: standalone, bind: bind };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
 })(typeof globalThis !== 'undefined' ? globalThis : this);
